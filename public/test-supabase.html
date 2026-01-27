@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supabase</title>
+</head>
+<body>
+    <h1>Test de Conexión Supabase</h1>
+    <button onclick="testConnection()">Probar Conexión</button>
+    <pre id="result"></pre>
+
+    <script>
+        const SUPABASE_URL = 'https://psxgfejpxmzzswivhwnw.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBzeGdmZWpweG16enN3aXZod253Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0MDE3NDYsImV4cCI6MjA4Mzk3Nzc0Nn0.hncSNjTHUC6RW8X4_PtohSZT3D775Z79AhlbCIq5RGI';
+
+        async function testConnection() {
+            const result = document.getElementById('result');
+            result.textContent = 'Probando conexión...';
+
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/clientes?select=count`, {
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const status = response.status;
+                const text = await response.text();
+
+                result.textContent = `Status: ${status}\nResponse: ${text}\n\n`;
+
+                if (status === 401) {
+                    result.textContent += 'ERROR 401: La API key es inválida o expiró.\n';
+                    result.textContent += 'Ve a Supabase -> Project Settings -> API y copia una nueva key.\n';
+                } else if (status === 200) {
+                    result.textContent += '✅ Conexión exitosa!';
+                } else {
+                    result.textContent += `Error: ${status}`;
+                }
+            } catch (err) {
+                result.textContent = 'Error: ' + err.message;
+            }
+        }
+    </script>
+</body>
+</html>
