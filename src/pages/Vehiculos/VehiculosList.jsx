@@ -1,47 +1,217 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
-import { Search, Plus, Edit2, Trash2, Eye, Car, User, Calendar, Gauge } from 'lucide-react';
-import { vehiculos, getClienteById } from '../../data/mockData';
+import {
+    Search, Plus, Car, User, Eye, X, Filter
+} from 'lucide-react';
+import { vehiculosService } from '../../services/vehiculosService';
+import { clientesService } from '../../services/clientesService';
 
 const VehiculosList = () => {
+    const [vehiculos, setVehiculos] = useState([]);
+    const [clientes, setClientes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterMarca, setFilterMarca] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [showNewModal, setShowNewModal] = useState(false);
     const [selectedVehiculo, setSelectedVehiculo] = useState(null);
 
-    const marcas = [...new Set(vehiculos.map(v => v.marca))];
+    // Form state
+    const [formData, setFormData] = useState({
+        cliente_id: '',
+        marca: '',
+        modelo: '',
+        anio: new Date().getFullYear(),
+        placa: '',
+        color: '',
+        vin: '',
+        kilometraje: 0
+    });
+    const [saving, setSaving] = useState(false);
 
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    const loadData = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const [vehiculosRes, clientesRes] = await Promise.all([
+                vehiculosService.getAll(),
+                clientesService.getAll()
+            ]);
+
+            setVehiculos(vehiculosRes.data || []);
+            setClientes(clientesRes.data || []);
+        } catch (err) {
+            console.error('Error loading data:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Get unique brands for filter
+    const marcasUnicas = [...new Set(vehiculos.map(v => v.marca).filter(Boolean))].sort();
+
+    // Filter vehicles
     const filteredVehiculos = vehiculos.filter(vehiculo => {
         const matchSearch =
-            vehiculo.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            vehiculo.modelo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            vehiculo.placa.toLowerCase().includes(searchTerm.toLowerCase());
+            vehiculo.marca?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            vehiculo.modelo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            vehiculo.placa?.toLowerCase().includes(searchTerm.toLowerCase());
+
         const matchMarca = !filterMarca || vehiculo.marca === filterMarca;
+
         return matchSearch && matchMarca;
     });
 
+    const getClienteById = (id) => clientes.find(c => c.id === id);
+
     const handleViewDetails = (vehiculo) => {
         setSelectedVehiculo(vehiculo);
-        setShowDetailModal(true);
+        setShowModal(true);
     };
 
+    const handleCloseModal = () => {
+        setShowModal(false);
+        setSelectedVehiculo(null);
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmitNewVehicle = async (e) => {
+        e.preventDefault();
+
+        if (!formData.cliente_id) {
+            alert('Por favor selecciona un cliente');
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            await vehiculosService.create({
+                cliente_id: formData.cliente_id,
+                marca: formData.marca,
+                modelo: formData.modelo,
+                anio: parseInt(formData.anio) || new Date().getFullYear(),
+                placa: formData.placa.toUpperCase(),
+                color: formData.color || null,
+                vin: formData.vin || null,
+                kilometraje: parseInt(formData.kilometraje) || 0
+            });
+
+            setShowNewModal(false);
+            setFormData({
+                cliente_id: '',
+                marca: '',
+                modelo: '',
+                anio: new Date().getFullYear(),
+                placa: '',
+                color: '',
+                vin: '',
+                kilometraje: 0
+            });
+            await loadData();
+        } catch (err) {
+            console.error('Error creating vehicle:', err);
+            alert('Error al crear vehículo: ' + err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <Layout title="Vehículos" subtitle="Gestión de Vehículos">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '400px',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-md)'
+                }}>
+                    <div className="loading-spinner"></div>
+                    <p style={{ color: 'var(--text-secondary)' }}>Cargando vehículos...</p>
+                </div>
+            </Layout>
+        );
+    }
+
+    if (error) {
+        return (
+            <Layout title="Vehículos" subtitle="Gestión de Vehículos">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '400px',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-md)'
+                }}>
+                    <X size={48} style={{ color: 'var(--danger-500)' }} />
+                    <p style={{ color: 'var(--danger-600)' }}>Error al cargar los vehículos: {error}</p>
+                    <button className="btn btn-primary" onClick={loadData}>Reintentar</button>
+                </div>
+            </Layout>
+        );
+    }
+
     return (
-        <Layout title="Gestión de Vehículos" subtitle="Vehículos">
+        <Layout title="Vehículos" subtitle="Gestión de Vehículos">
             <div className="page-header">
                 <div className="page-header-content">
                     <h1 className="page-title">Vehículos</h1>
-                    <p className="page-subtitle">Registro de vehículos de los clientes</p>
+                    <p className="page-subtitle">Gestiona los vehículos de tus clientes</p>
                 </div>
                 <div className="page-actions">
-                    <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                    <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
                         <Plus size={18} />
                         Nuevo Vehículo
                     </button>
                 </div>
             </div>
 
-            {/* Filtros y búsqueda */}
+            {/* Stats */}
+            <div className="grid grid-cols-3" style={{ marginBottom: 'var(--spacing-lg)' }}>
+                <div className="stats-card">
+                    <div className="stats-card-icon primary">
+                        <Car size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Total Vehículos</div>
+                        <div className="stats-card-value">{vehiculos.length}</div>
+                    </div>
+                </div>
+                <div className="stats-card">
+                    <div className="stats-card-icon success">
+                        <Filter size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Marcas</div>
+                        <div className="stats-card-value">{marcasUnicas.length}</div>
+                    </div>
+                </div>
+                <div className="stats-card">
+                    <div className="stats-card-icon info">
+                        <User size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Clientes</div>
+                        <div className="stats-card-value">{clientes.length}</div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Filtros */}
             <div className="filters-bar">
                 <div className="search-bar" style={{ maxWidth: '400px' }}>
                     <Search className="search-bar-icon" size={18} />
@@ -59,264 +229,351 @@ const VehiculosList = () => {
                     onChange={(e) => setFilterMarca(e.target.value)}
                 >
                     <option value="">Todas las marcas</option>
-                    {marcas.map(marca => (
+                    {marcasUnicas.map(marca => (
                         <option key={marca} value={marca}>{marca}</option>
                     ))}
                 </select>
+                {filterMarca && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setFilterMarca('')}>
+                        Limpiar filtro
+                    </button>
+                )}
             </div>
 
-            {/* Grid de vehículos */}
+            {/* Grid de Vehículos */}
             <div className="grid grid-cols-3">
                 {filteredVehiculos.map((vehiculo) => {
-                    const cliente = getClienteById(vehiculo.clienteId);
+                    const cliente = vehiculo.clientes || getClienteById(vehiculo.cliente_id);
+
                     return (
-                        <div key={vehiculo.id} className="card card-clickable" onClick={() => handleViewDetails(vehiculo)}>
+                        <div key={vehiculo.id} className="card">
                             <div className="card-body">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--spacing-md)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+                                        <div style={{
+                                            width: '48px',
+                                            height: '48px',
+                                            borderRadius: 'var(--border-radius)',
+                                            background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}>
+                                            <Car size={24} style={{ color: 'white' }} />
+                                        </div>
+                                        <div>
+                                            <h4 style={{ margin: 0 }}>{vehiculo.marca} {vehiculo.modelo}</h4>
+                                            <span style={{
+                                                fontSize: 'var(--font-size-sm)',
+                                                color: 'var(--primary-600)',
+                                                fontWeight: 'var(--font-weight-medium)'
+                                            }}>
+                                                {vehiculo.placa}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="btn btn-ghost btn-icon"
+                                        onClick={() => handleViewDetails(vehiculo)}
+                                    >
+                                        <Eye size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
+                                    <div style={{ fontSize: 'var(--font-size-sm)' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Año: </span>
+                                        <span style={{ fontWeight: 'var(--font-weight-medium)' }}>{vehiculo.anio}</span>
+                                    </div>
+                                    <div style={{ fontSize: 'var(--font-size-sm)' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Color: </span>
+                                        <span style={{ fontWeight: 'var(--font-weight-medium)' }}>{vehiculo.color || '-'}</span>
+                                    </div>
+                                    <div style={{ fontSize: 'var(--font-size-sm)', gridColumn: 'span 2' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Km: </span>
+                                        <span style={{ fontWeight: 'var(--font-weight-medium)' }}>
+                                            {vehiculo.kilometraje?.toLocaleString() || 0}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {cliente && (
                                     <div style={{
-                                        width: '48px',
-                                        height: '48px',
-                                        borderRadius: 'var(--border-radius)',
-                                        background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        justifyContent: 'center',
-                                        color: 'white'
+                                        gap: 'var(--spacing-sm)',
+                                        paddingTop: 'var(--spacing-sm)',
+                                        borderTop: '1px solid var(--border-color)'
                                     }}>
-                                        <Car size={24} />
+                                        <User size={14} style={{ color: 'var(--text-muted)' }} />
+                                        <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+                                            {cliente.nombre}
+                                        </span>
                                     </div>
-                                    <span style={{
-                                        padding: '4px 10px',
-                                        backgroundColor: 'var(--gray-100)',
-                                        borderRadius: 'var(--border-radius)',
-                                        fontSize: 'var(--font-size-sm)',
-                                        fontWeight: 'var(--font-weight-semibold)',
-                                        color: 'var(--text-primary)'
-                                    }}>
-                                        {vehiculo.placa}
-                                    </span>
-                                </div>
-
-                                <h3 style={{
-                                    margin: '0 0 4px 0',
-                                    fontSize: 'var(--font-size-lg)',
-                                    fontWeight: 'var(--font-weight-semibold)',
-                                    color: 'var(--text-primary)'
-                                }}>
-                                    {vehiculo.marca} {vehiculo.modelo}
-                                </h3>
-                                <p style={{ margin: 0, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                    {vehiculo.anio} • {vehiculo.color}
-                                </p>
-
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--spacing-sm)',
-                                    marginTop: 'var(--spacing-md)',
-                                    paddingTop: 'var(--spacing-md)',
-                                    borderTop: '1px solid var(--border-color)'
-                                }}>
-                                    <div className="avatar avatar-sm" style={{
-                                        background: 'linear-gradient(135deg, var(--success-500), var(--success-600))'
-                                    }}>
-                                        {cliente?.nombre.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                    </div>
-                                    <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                        {cliente?.nombre.split(' ').slice(0, 2).join(' ')}
-                                    </span>
-                                </div>
-
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    marginTop: 'var(--spacing-md)',
-                                    fontSize: 'var(--font-size-sm)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)' }}>
-                                        <Gauge size={14} />
-                                        {vehiculo.kilometraje.toLocaleString()} km
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)' }}>
-                                        <Calendar size={14} />
-                                        {new Date(vehiculo.ultimoServicio).toLocaleDateString('es', { month: 'short', day: 'numeric' })}
-                                    </div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     );
                 })}
             </div>
 
-            {/* Modal Nuevo Vehículo */}
-            {showModal && (
-                <div className="modal-overlay" onClick={() => setShowModal(false)}>
+            {filteredVehiculos.length === 0 && (
+                <div className="empty-state">
+                    <Car className="empty-state-icon" />
+                    <h3 className="empty-state-title">No se encontraron vehículos</h3>
+                    <p className="empty-state-description">
+                        {searchTerm || filterMarca ? 'Intenta con otros filtros' : 'Comienza agregando tu primer vehículo'}
+                    </p>
+                    {!searchTerm && !filterMarca && (
+                        <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                            <Plus size={18} />
+                            Nuevo Vehículo
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Modal Ver Vehículo */}
+            {showModal && selectedVehiculo && (
+                <div className="modal-overlay" onClick={handleCloseModal}>
                     <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2 className="modal-title">Nuevo Vehículo</h2>
-                            <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
+                            <h2 className="modal-title">Detalle del Vehículo</h2>
+                            <button className="modal-close" onClick={handleCloseModal}>×</button>
                         </div>
                         <div className="modal-body">
-                            <div className="form-group">
-                                <label className="form-label required">Cliente</label>
-                                <select className="form-select">
-                                    <option value="">Seleccione un cliente</option>
-                                    {[...new Set(vehiculos.map(v => v.clienteId))].map(clienteId => {
-                                        const cliente = getClienteById(clienteId);
-                                        return (
-                                            <option key={clienteId} value={clienteId}>{cliente?.nombre}</option>
-                                        );
-                                    })}
-                                </select>
-                            </div>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label className="form-label required">Marca</label>
-                                    <input type="text" className="form-input" placeholder="Ej: Toyota" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label required">Modelo</label>
-                                    <input type="text" className="form-input" placeholder="Ej: Corolla" />
-                                </div>
-                            </div>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label className="form-label required">Año</label>
-                                    <input type="number" className="form-input" placeholder="2024" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label required">Color</label>
-                                    <input type="text" className="form-input" placeholder="Ej: Blanco" />
-                                </div>
-                            </div>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label className="form-label required">Placa</label>
-                                    <input type="text" className="form-input" placeholder="ABC-1234" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">VIN</label>
-                                    <input type="text" className="form-input" placeholder="Número de identificación" />
-                                </div>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Kilometraje Actual</label>
-                                <input type="number" className="form-input" placeholder="0" />
-                            </div>
+                            {(() => {
+                                const cliente = selectedVehiculo.clientes || getClienteById(selectedVehiculo.cliente_id);
+
+                                return (
+                                    <>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-lg)', marginBottom: 'var(--spacing-lg)' }}>
+                                            <div style={{
+                                                width: '80px',
+                                                height: '80px',
+                                                borderRadius: 'var(--border-radius-lg)',
+                                                background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}>
+                                                <Car size={40} style={{ color: 'white' }} />
+                                            </div>
+                                            <div>
+                                                <h3 style={{ margin: 0 }}>{selectedVehiculo.marca} {selectedVehiculo.modelo}</h3>
+                                                <span style={{
+                                                    fontSize: 'var(--font-size-lg)',
+                                                    color: 'var(--primary-600)',
+                                                    fontWeight: 'var(--font-weight-bold)'
+                                                }}>
+                                                    {selectedVehiculo.placa}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-lg)', marginBottom: 'var(--spacing-lg)' }}>
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--gray-50)',
+                                                borderRadius: 'var(--border-radius)'
+                                            }}>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: '4px' }}>Año</div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{selectedVehiculo.anio}</div>
+                                            </div>
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--gray-50)',
+                                                borderRadius: 'var(--border-radius)'
+                                            }}>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: '4px' }}>Color</div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{selectedVehiculo.color || 'No especificado'}</div>
+                                            </div>
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--gray-50)',
+                                                borderRadius: 'var(--border-radius)'
+                                            }}>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: '4px' }}>Kilometraje</div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{selectedVehiculo.kilometraje?.toLocaleString() || 0} km</div>
+                                            </div>
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--gray-50)',
+                                                borderRadius: 'var(--border-radius)'
+                                            }}>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: '4px' }}>VIN</div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)', fontSize: 'var(--font-size-sm)' }}>
+                                                    {selectedVehiculo.vin || 'No registrado'}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {cliente && (
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--primary-50)',
+                                                borderRadius: 'var(--border-radius)',
+                                                border: '1px solid var(--primary-200)'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--primary-700)', marginBottom: 'var(--spacing-xs)' }}>
+                                                    <User size={16} />
+                                                    <span style={{ fontWeight: 'var(--font-weight-medium)' }}>Propietario</span>
+                                                </div>
+                                                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-medium)' }}>
+                                                    {cliente.nombre}
+                                                </div>
+                                                {cliente.telefono && (
+                                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+                                                        {cliente.telefono}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </div>
                         <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                            <button className="btn btn-primary">Guardar Vehículo</button>
+                            <button className="btn btn-secondary" onClick={handleCloseModal}>Cerrar</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Modal Detalle Vehículo */}
-            {showDetailModal && selectedVehiculo && (
-                <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
+            {/* Modal Nuevo Vehículo */}
+            {showNewModal && (
+                <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
                     <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2 className="modal-title">Detalle del Vehículo</h2>
-                            <button className="modal-close" onClick={() => setShowDetailModal(false)}>×</button>
+                            <h2 className="modal-title">Nuevo Vehículo</h2>
+                            <button className="modal-close" onClick={() => setShowNewModal(false)}>×</button>
                         </div>
-                        <div className="modal-body">
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 'var(--spacing-lg)',
-                                marginBottom: 'var(--spacing-lg)',
-                                padding: 'var(--spacing-lg)',
-                                backgroundColor: 'var(--gray-50)',
-                                borderRadius: 'var(--border-radius-lg)'
-                            }}>
-                                <div style={{
-                                    width: '64px',
-                                    height: '64px',
-                                    borderRadius: 'var(--border-radius-lg)',
-                                    background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: 'white'
-                                }}>
-                                    <Car size={32} />
+                        <form onSubmit={handleSubmitNewVehicle}>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label className="form-label required">Propietario</label>
+                                    <select
+                                        className="form-input"
+                                        name="cliente_id"
+                                        value={formData.cliente_id}
+                                        onChange={handleInputChange}
+                                        required
+                                    >
+                                        <option value="">Seleccionar cliente...</option>
+                                        {clientes.map(cliente => (
+                                            <option key={cliente.id} value={cliente.id}>
+                                                {cliente.nombre}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <h3 style={{ margin: 0, fontSize: 'var(--font-size-xl)' }}>
-                                        {selectedVehiculo.marca} {selectedVehiculo.modelo}
-                                    </h3>
-                                    <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)' }}>
-                                        {selectedVehiculo.anio} • {selectedVehiculo.color}
-                                    </p>
-                                </div>
-                                <div style={{
-                                    padding: 'var(--spacing-sm) var(--spacing-md)',
-                                    backgroundColor: 'var(--bg-secondary)',
-                                    borderRadius: 'var(--border-radius)',
-                                    fontWeight: 'var(--font-weight-bold)',
-                                    fontSize: 'var(--font-size-lg)'
-                                }}>
-                                    {selectedVehiculo.placa}
-                                </div>
-                            </div>
 
-                            <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-lg)' }}>
-                                <div>
-                                    <h4 style={{ marginBottom: 'var(--spacing-md)' }}>Información del Vehículo</h4>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--spacing-sm) 0', borderBottom: '1px solid var(--border-color)' }}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>VIN</span>
-                                            <span style={{ fontFamily: 'monospace', fontWeight: 'var(--font-weight-medium)' }}>{selectedVehiculo.vin}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--spacing-sm) 0', borderBottom: '1px solid var(--border-color)' }}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>Kilometraje</span>
-                                            <span style={{ fontWeight: 'var(--font-weight-medium)' }}>{selectedVehiculo.kilometraje.toLocaleString()} km</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--spacing-sm) 0' }}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>Último Servicio</span>
-                                            <span style={{ fontWeight: 'var(--font-weight-medium)' }}>
-                                                {new Date(selectedVehiculo.ultimoServicio).toLocaleDateString('es', { year: 'numeric', month: 'long', day: 'numeric' })}
-                                            </span>
-                                        </div>
+                                <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-md)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label required">Marca</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            name="marca"
+                                            value={formData.marca}
+                                            onChange={handleInputChange}
+                                            placeholder="Ej: Toyota"
+                                            required
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label required">Modelo</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            name="modelo"
+                                            value={formData.modelo}
+                                            onChange={handleInputChange}
+                                            placeholder="Ej: Corolla"
+                                            required
+                                        />
                                     </div>
                                 </div>
-                                <div>
-                                    <h4 style={{ marginBottom: 'var(--spacing-md)' }}>Propietario</h4>
-                                    {(() => {
-                                        const cliente = getClienteById(selectedVehiculo.clienteId);
-                                        return (
-                                            <div style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 'var(--spacing-md)',
-                                                padding: 'var(--spacing-md)',
-                                                backgroundColor: 'var(--gray-50)',
-                                                borderRadius: 'var(--border-radius)'
-                                            }}>
-                                                <div className="avatar" style={{
-                                                    background: 'linear-gradient(135deg, var(--success-500), var(--success-600))'
-                                                }}>
-                                                    {cliente?.nombre.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                                </div>
-                                                <div>
-                                                    <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{cliente?.nombre}</div>
-                                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{cliente?.telefono}</div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
+
+                                <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-md)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label required">Año</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            name="anio"
+                                            value={formData.anio}
+                                            onChange={handleInputChange}
+                                            min="1900"
+                                            max={new Date().getFullYear() + 1}
+                                            required
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label required">Placa</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            name="placa"
+                                            value={formData.placa}
+                                            onChange={handleInputChange}
+                                            placeholder="ABC-1234"
+                                            style={{ textTransform: 'uppercase' }}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-md)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Color</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            name="color"
+                                            value={formData.color}
+                                            onChange={handleInputChange}
+                                            placeholder="Ej: Blanco"
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Kilometraje</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            name="kilometraje"
+                                            value={formData.kilometraje}
+                                            onChange={handleInputChange}
+                                            placeholder="0"
+                                            min="0"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">VIN (Número de Serie)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        name="vin"
+                                        value={formData.vin}
+                                        onChange={handleInputChange}
+                                        placeholder="Número de identificación del vehículo"
+                                    />
                                 </div>
                             </div>
-                        </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowDetailModal(false)}>Cerrar</button>
-                            <button className="btn btn-outline">Ver Historial</button>
-                            <button className="btn btn-primary">
-                                <Edit2 size={16} />
-                                Editar
-                            </button>
-                        </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    {saving ? 'Guardando...' : 'Guardar Vehículo'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

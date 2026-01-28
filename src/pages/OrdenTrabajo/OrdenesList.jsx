@@ -1,66 +1,94 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
-    Search, Plus, Edit2, Eye, Filter, Clock, User, Car,
-    CheckCircle, AlertCircle, Wrench, DollarSign
+    Search, Plus, Eye, Clock, CheckCircle, Wrench,
+    User, Car, X
 } from 'lucide-react';
-import { ordenes, getClienteById, getVehiculoById, getTecnicoById } from '../../data/mockData';
+import { ordenesService } from '../../services/ordenesService';
+import { clientesService } from '../../services/clientesService';
+import { vehiculosService } from '../../services/vehiculosService';
+import { tecnicosService } from '../../services/tecnicosService';
 
 const OrdenesList = () => {
+    const [ordenes, setOrdenes] = useState([]);
+    const [clientes, setClientes] = useState([]);
+    const [vehiculos, setVehiculos] = useState([]);
+    const [tecnicos, setTecnicos] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterEstado, setFilterEstado] = useState('');
     const [showModal, setShowModal] = useState(false);
+    const [showNewModal, setShowNewModal] = useState(false);
     const [selectedOrden, setSelectedOrden] = useState(null);
 
-    const estados = [
-        { value: 'pendiente', label: 'Pendiente' },
-        { value: 'en-proceso', label: 'En Proceso' },
-        { value: 'completado', label: 'Completado' },
-        { value: 'entregado', label: 'Entregado' }
-    ];
+    // Form state - sin prioridad
+    const [formData, setFormData] = useState({
+        cliente_id: '',
+        vehiculo_id: '',
+        tecnico_id: '',
+        descripcion: ''
+    });
+    const [vehiculosCliente, setVehiculosCliente] = useState([]);
+    const [saving, setSaving] = useState(false);
 
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    const loadData = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const [ordenesRes, clientesRes, vehiculosRes, tecnicosRes] = await Promise.all([
+                ordenesService.getAll(),
+                clientesService.getAll(),
+                vehiculosService.getAll(),
+                tecnicosService.getAll()
+            ]);
+
+            setOrdenes(ordenesRes.data || []);
+            setClientes(clientesRes.data || []);
+            setVehiculos(vehiculosRes.data || []);
+            setTecnicos(tecnicosRes.data || []);
+        } catch (err) {
+            console.error('Error loading data:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Helper functions
+    const getClienteById = (id) => clientes.find(c => c.id === id);
+    const getVehiculoById = (id) => vehiculos.find(v => v.id === id);
+    const getTecnicoById = (id) => tecnicos.find(t => t.id === id);
+
+    // Filter orders
     const filteredOrdenes = ordenes.filter(orden => {
-        const cliente = getClienteById(orden.clienteId);
-        const vehiculo = getVehiculoById(orden.vehiculoId);
+        const cliente = orden.clientes || getClienteById(orden.cliente_id);
+        const vehiculo = orden.vehiculos || getVehiculoById(orden.vehiculo_id);
+
         const matchSearch =
-            orden.id.toString().includes(searchTerm) ||
-            cliente?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            vehiculo?.placa.toLowerCase().includes(searchTerm.toLowerCase());
+            orden.id?.toString().includes(searchTerm) ||
+            orden.numero_orden?.toString().includes(searchTerm) ||
+            cliente?.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            vehiculo?.placa?.toLowerCase().includes(searchTerm.toLowerCase());
+
         const matchEstado = !filterEstado || orden.estado === filterEstado;
+
         return matchSearch && matchEstado;
     });
 
     const getStatusBadge = (estado) => {
-        const statusMap = {
-            'pendiente': 'pending',
-            'en-proceso': 'in-progress',
-            'completado': 'completed',
-            'entregado': 'delivered',
-            'cancelado': 'cancelled'
+        const estados = {
+            'pendiente': { class: 'pending', label: 'Pendiente', icon: Clock },
+            'en-proceso': { class: 'in-progress', label: 'En Proceso', icon: Wrench },
+            'completado': { class: 'completed', label: 'Completado', icon: CheckCircle },
+            'entregado': { class: 'delivered', label: 'Entregado', icon: CheckCircle }
         };
-        const statusLabels = {
-            'pendiente': 'Pendiente',
-            'en-proceso': 'En Proceso',
-            'completado': 'Completado',
-            'entregado': 'Entregado',
-            'cancelado': 'Cancelado'
-        };
-        return (
-            <span className={`status-badge ${statusMap[estado]}`}>
-                <span className="status-badge-dot"></span>
-                {statusLabels[estado]}
-            </span>
-        );
-    };
-
-    const getStatusIcon = (estado) => {
-        switch (estado) {
-            case 'pendiente': return <AlertCircle size={16} style={{ color: 'var(--warning-500)' }} />;
-            case 'en-proceso': return <Clock size={16} style={{ color: 'var(--info-500)' }} />;
-            case 'completado': return <CheckCircle size={16} style={{ color: 'var(--success-500)' }} />;
-            case 'entregado': return <CheckCircle size={16} style={{ color: 'var(--primary-500)' }} />;
-            default: return null;
-        }
+        return estados[estado] || { class: 'pending', label: estado, icon: Clock };
     };
 
     const handleViewDetails = (orden) => {
@@ -68,61 +96,169 @@ const OrdenesList = () => {
         setShowModal(true);
     };
 
+    const handleCloseModal = () => {
+        setShowModal(false);
+        setSelectedOrden(null);
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+
+        // When client changes, load their vehicles
+        if (name === 'cliente_id' && value) {
+            const clienteVehiculos = vehiculos.filter(v => v.cliente_id === value);
+            setVehiculosCliente(clienteVehiculos);
+            setFormData(prev => ({ ...prev, vehiculo_id: '' }));
+        }
+    };
+
+    const handleSubmitNewOrder = async (e) => {
+        e.preventDefault();
+
+        if (!formData.cliente_id || !formData.vehiculo_id) {
+            alert('Por favor selecciona cliente y vehículo');
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            // Sin prioridad - el campo no existe en la BD
+            await ordenesService.create({
+                cliente_id: formData.cliente_id,
+                vehiculo_id: formData.vehiculo_id,
+                tecnico_id: formData.tecnico_id || null,
+                descripcion: formData.descripcion,
+                estado: 'pendiente',
+                fecha_ingreso: new Date().toISOString()
+            });
+
+            setShowNewModal(false);
+            setFormData({
+                cliente_id: '',
+                vehiculo_id: '',
+                tecnico_id: '',
+                descripcion: ''
+            });
+            setVehiculosCliente([]);
+            await loadData();
+        } catch (err) {
+            console.error('Error creating order:', err);
+            alert('Error al crear orden: ' + err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // Stats
+    const stats = {
+        total: ordenes.length,
+        pendientes: ordenes.filter(o => o.estado === 'pendiente').length,
+        enProceso: ordenes.filter(o => o.estado === 'en-proceso').length,
+        completadas: ordenes.filter(o => o.estado === 'completado' || o.estado === 'entregado').length
+    };
+
+    if (loading) {
+        return (
+            <Layout title="Órdenes" subtitle="Órdenes de Trabajo">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '400px',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-md)'
+                }}>
+                    <div className="loading-spinner"></div>
+                    <p style={{ color: 'var(--text-secondary)' }}>Cargando órdenes...</p>
+                </div>
+            </Layout>
+        );
+    }
+
+    if (error) {
+        return (
+            <Layout title="Órdenes" subtitle="Órdenes de Trabajo">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '400px',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-md)'
+                }}>
+                    <X size={48} style={{ color: 'var(--danger-500)' }} />
+                    <p style={{ color: 'var(--danger-600)' }}>Error al cargar las órdenes: {error}</p>
+                    <button className="btn btn-primary" onClick={loadData}>Reintentar</button>
+                </div>
+            </Layout>
+        );
+    }
+
     return (
-        <Layout title="Órdenes de Trabajo" subtitle="Órdenes">
+        <Layout title="Órdenes" subtitle="Órdenes de Trabajo">
             <div className="page-header">
                 <div className="page-header-content">
                     <h1 className="page-title">Órdenes de Trabajo</h1>
-                    <p className="page-subtitle">Gestiona todas las órdenes de servicio del taller</p>
+                    <p className="page-subtitle">Gestiona las órdenes de servicio</p>
                 </div>
                 <div className="page-actions">
-                    <button className="btn btn-primary">
+                    <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
                         <Plus size={18} />
                         Nueva Orden
                     </button>
                 </div>
             </div>
 
-            {/* Stats rápidos */}
+            {/* Stats */}
             <div className="grid grid-cols-4" style={{ marginBottom: 'var(--spacing-lg)' }}>
-                {estados.map(estado => {
-                    const count = ordenes.filter(o => o.estado === estado.value).length;
-                    return (
-                        <div
-                            key={estado.value}
-                            className="card card-clickable"
-                            style={{
-                                cursor: 'pointer',
-                                borderLeft: `3px solid ${estado.value === 'pendiente' ? 'var(--warning-500)' :
-                                        estado.value === 'en-proceso' ? 'var(--info-500)' :
-                                            estado.value === 'completado' ? 'var(--success-500)' :
-                                                'var(--primary-500)'
-                                    }`
-                            }}
-                            onClick={() => setFilterEstado(filterEstado === estado.value ? '' : estado.value)}
-                        >
-                            <div className="card-body" style={{ padding: 'var(--spacing-md)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'var(--font-weight-bold)' }}>{count}</div>
-                                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{estado.label}</div>
-                                    </div>
-                                    {getStatusIcon(estado.value)}
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
+                <div className="stats-card" onClick={() => setFilterEstado('')} style={{ cursor: 'pointer' }}>
+                    <div className="stats-card-icon primary">
+                        <Wrench size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Total</div>
+                        <div className="stats-card-value">{stats.total}</div>
+                    </div>
+                </div>
+                <div className="stats-card" onClick={() => setFilterEstado('pendiente')} style={{ cursor: 'pointer' }}>
+                    <div className="stats-card-icon warning">
+                        <Clock size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Pendientes</div>
+                        <div className="stats-card-value">{stats.pendientes}</div>
+                    </div>
+                </div>
+                <div className="stats-card" onClick={() => setFilterEstado('en-proceso')} style={{ cursor: 'pointer' }}>
+                    <div className="stats-card-icon info">
+                        <Wrench size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">En Proceso</div>
+                        <div className="stats-card-value">{stats.enProceso}</div>
+                    </div>
+                </div>
+                <div className="stats-card" onClick={() => setFilterEstado('completado')} style={{ cursor: 'pointer' }}>
+                    <div className="stats-card-icon success">
+                        <CheckCircle size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Completadas</div>
+                        <div className="stats-card-value">{stats.completadas}</div>
+                    </div>
+                </div>
             </div>
 
-            {/* Filtros y búsqueda */}
+            {/* Filtros */}
             <div className="filters-bar">
                 <div className="search-bar" style={{ maxWidth: '400px' }}>
                     <Search className="search-bar-icon" size={18} />
                     <input
                         type="text"
                         className="search-bar-input"
-                        placeholder="Buscar por # orden, cliente o placa..."
+                        placeholder="Buscar por número, cliente o placa..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -133,263 +269,279 @@ const OrdenesList = () => {
                     onChange={(e) => setFilterEstado(e.target.value)}
                 >
                     <option value="">Todos los estados</option>
-                    {estados.map(estado => (
-                        <option key={estado.value} value={estado.value}>{estado.label}</option>
-                    ))}
+                    <option value="pendiente">Pendientes</option>
+                    <option value="en-proceso">En Proceso</option>
+                    <option value="completado">Completadas</option>
+                    <option value="entregado">Entregadas</option>
                 </select>
+                {filterEstado && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setFilterEstado('')}>
+                        Limpiar filtro
+                    </button>
+                )}
             </div>
 
-            {/* Lista de órdenes */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                {filteredOrdenes.map((orden) => {
-                    const cliente = getClienteById(orden.clienteId);
-                    const vehiculo = getVehiculoById(orden.vehiculoId);
-                    const tecnico = getTecnicoById(orden.tecnicoId);
+            {/* Lista de Órdenes */}
+            <div className="table-container">
+                <table className="table">
+                    <thead>
+                        <tr>
+                            <th>Orden</th>
+                            <th>Cliente</th>
+                            <th>Vehículo</th>
+                            <th>Técnico</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredOrdenes.map((orden) => {
+                            const cliente = orden.clientes || getClienteById(orden.cliente_id);
+                            const vehiculo = orden.vehiculos || getVehiculoById(orden.vehiculo_id);
+                            const tecnico = orden.tecnicos || getTecnicoById(orden.tecnico_id);
+                            const status = getStatusBadge(orden.estado);
 
-                    return (
-                        <div key={orden.id} className="card">
-                            <div className="card-body">
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--spacing-md)' }}>
-                                    {/* Info principal */}
-                                    <div style={{ display: 'flex', gap: 'var(--spacing-lg)' }}>
-                                        <div style={{
-                                            width: '56px',
-                                            height: '56px',
-                                            borderRadius: 'var(--border-radius)',
-                                            backgroundColor: orden.estado === 'pendiente' ? 'var(--warning-100)' :
-                                                orden.estado === 'en-proceso' ? 'var(--info-100)' :
-                                                    orden.estado === 'completado' ? 'var(--success-100)' :
-                                                        'var(--primary-100)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: orden.estado === 'pendiente' ? 'var(--warning-600)' :
-                                                orden.estado === 'en-proceso' ? 'var(--info-600)' :
-                                                    orden.estado === 'completado' ? 'var(--success-600)' :
-                                                        'var(--primary-600)'
-                                        }}>
-                                            <Wrench size={24} />
-                                        </div>
-                                        <div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: '4px' }}>
-                                                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)' }}>
-                                                    Orden #{orden.id}
-                                                </span>
-                                                {getStatusBadge(orden.estado)}
-                                            </div>
-                                            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                                {orden.tipo} • {orden.descripcion}
-                                            </div>
-                                            <div style={{ display: 'flex', gap: 'var(--spacing-lg)', marginTop: 'var(--spacing-sm)' }}>
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-sm)' }}>
-                                                    <User size={14} style={{ color: 'var(--text-muted)' }} />
-                                                    {cliente?.nombre.split(' ').slice(0, 2).join(' ')}
-                                                </span>
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-sm)' }}>
-                                                    <Car size={14} style={{ color: 'var(--text-muted)' }} />
-                                                    {vehiculo?.marca} {vehiculo?.modelo} ({vehiculo?.placa})
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Info adicional */}
-                                    <div style={{ display: 'flex', gap: 'var(--spacing-xl)', alignItems: 'flex-start' }}>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginBottom: '2px' }}>Técnico</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <div className="avatar avatar-sm" style={{
-                                                    background: 'linear-gradient(135deg, var(--success-500), var(--success-600))'
-                                                }}>
-                                                    {tecnico?.nombre.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                                </div>
-                                                <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
-                                                    {tecnico?.nombre.split(' ')[0]}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginBottom: '2px' }}>Fecha Est.</div>
-                                            <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
-                                                {new Date(orden.fechaEstimada).toLocaleDateString('es', { month: 'short', day: 'numeric' })}
-                                            </div>
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginBottom: '2px' }}>Costo</div>
-                                            <div style={{
-                                                fontSize: 'var(--font-size-sm)',
-                                                fontWeight: 'var(--font-weight-bold)',
-                                                color: 'var(--success-600)'
-                                            }}>
-                                                Bs. {orden.costoFinal || orden.costoEstimado}
-                                            </div>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                                            <button
-                                                className="btn btn-outline btn-sm"
-                                                onClick={() => handleViewDetails(orden)}
-                                            >
-                                                <Eye size={14} />
-                                                Ver Detalle
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Servicios */}
-                                <div style={{
-                                    marginTop: 'var(--spacing-md)',
-                                    paddingTop: 'var(--spacing-md)',
-                                    borderTop: '1px solid var(--border-color)',
-                                    display: 'flex',
-                                    gap: 'var(--spacing-sm)',
-                                    flexWrap: 'wrap'
-                                }}>
-                                    {orden.servicios.map((servicio, index) => (
-                                        <span key={index} style={{
-                                            padding: '4px 10px',
-                                            backgroundColor: 'var(--gray-100)',
-                                            borderRadius: 'var(--border-radius-full)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            color: 'var(--text-secondary)'
-                                        }}>
-                                            {servicio}
+                            return (
+                                <tr key={orden.id}>
+                                    <td>
+                                        <span style={{ fontWeight: 'var(--font-weight-bold)' }}>
+                                            #{orden.numero_orden || orden.id}
                                         </span>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                            <User size={14} style={{ color: 'var(--text-muted)' }} />
+                                            {cliente?.nombre || 'Sin cliente'}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                            <Car size={14} style={{ color: 'var(--text-muted)' }} />
+                                            <div>
+                                                <div>{vehiculo?.marca} {vehiculo?.modelo}</div>
+                                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
+                                                    {vehiculo?.placa}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>{tecnico?.nombre || <span style={{ color: 'var(--text-muted)' }}>Sin asignar</span>}</td>
+                                    <td>
+                                        <span className={`status-badge ${status.class}`}>
+                                            <status.icon size={12} />
+                                            {status.label}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {orden.fecha_ingreso
+                                            ? new Date(orden.fecha_ingreso).toLocaleDateString('es')
+                                            : '-'}
+                                    </td>
+                                    <td>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleViewDetails(orden)}
+                                        >
+                                            <Eye size={18} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
 
-            {/* Modal Detalle Orden */}
+            {filteredOrdenes.length === 0 && (
+                <div className="empty-state">
+                    <Wrench className="empty-state-icon" />
+                    <h3 className="empty-state-title">No hay órdenes</h3>
+                    <p className="empty-state-description">
+                        {searchTerm || filterEstado ? 'Intenta con otros filtros' : 'Crea tu primera orden de trabajo'}
+                    </p>
+                    {!searchTerm && !filterEstado && (
+                        <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                            <Plus size={18} />
+                            Nueva Orden
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Modal Ver Orden */}
             {showModal && selectedOrden && (
-                <div className="modal-overlay" onClick={() => setShowModal(false)}>
-                    <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-overlay" onClick={handleCloseModal}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2 className="modal-title">Orden de Trabajo #{selectedOrden.id}</h2>
-                            <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
+                            <h2 className="modal-title">Orden #{selectedOrden.numero_orden || selectedOrden.id}</h2>
+                            <button className="modal-close" onClick={handleCloseModal}>×</button>
                         </div>
                         <div className="modal-body">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-lg)' }}>
-                                <div>
-                                    <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-semibold)' }}>{selectedOrden.tipo}</span>
-                                    <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)' }}>{selectedOrden.descripcion}</p>
-                                </div>
-                                {getStatusBadge(selectedOrden.estado)}
-                            </div>
+                            {(() => {
+                                const cliente = selectedOrden.clientes || getClienteById(selectedOrden.cliente_id);
+                                const vehiculo = selectedOrden.vehiculos || getVehiculoById(selectedOrden.vehiculo_id);
+                                const tecnico = selectedOrden.tecnicos || getTecnicoById(selectedOrden.tecnico_id);
+                                const status = getStatusBadge(selectedOrden.estado);
 
-                            <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-lg)', marginBottom: 'var(--spacing-lg)' }}>
-                                <div className="card">
-                                    <div className="card-header">
-                                        <h4 className="card-title">Cliente y Vehículo</h4>
-                                    </div>
-                                    <div className="card-body">
-                                        {(() => {
-                                            const cliente = getClienteById(selectedOrden.clienteId);
-                                            const vehiculo = getVehiculoById(selectedOrden.vehiculoId);
-                                            return (
-                                                <>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
-                                                        <User size={18} style={{ color: 'var(--primary-500)' }} />
-                                                        <div>
-                                                            <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{cliente?.nombre}</div>
-                                                            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{cliente?.telefono}</div>
-                                                        </div>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-                                                        <Car size={18} style={{ color: 'var(--primary-500)' }} />
-                                                        <div>
-                                                            <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{vehiculo?.marca} {vehiculo?.modelo}</div>
-                                                            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                                                Placa: {vehiculo?.placa} • {vehiculo?.kilometraje.toLocaleString()} km
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-                                </div>
-
-                                <div className="card">
-                                    <div className="card-header">
-                                        <h4 className="card-title">Fechas y Costos</h4>
-                                    </div>
-                                    <div className="card-body">
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
-                                            <div>
-                                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>Fecha Ingreso</div>
-                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>
-                                                    {new Date(selectedOrden.fechaIngreso).toLocaleDateString('es', { year: 'numeric', month: 'long', day: 'numeric' })}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>Fecha Estimada</div>
-                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>
-                                                    {new Date(selectedOrden.fechaEstimada).toLocaleDateString('es', { year: 'numeric', month: 'long', day: 'numeric' })}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>Costo Estimado</div>
-                                                <div style={{ fontWeight: 'var(--font-weight-bold)', color: 'var(--text-primary)' }}>
-                                                    Bs. {selectedOrden.costoEstimado}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>Costo Final</div>
-                                                <div style={{ fontWeight: 'var(--font-weight-bold)', color: 'var(--success-600)' }}>
-                                                    {selectedOrden.costoFinal ? `Bs. ${selectedOrden.costoFinal}` : 'Pendiente'}
-                                                </div>
-                                            </div>
+                                return (
+                                    <>
+                                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--spacing-lg)' }}>
+                                            <span className={`status-badge ${status.class}`} style={{ fontSize: 'var(--font-size-md)' }}>
+                                                <status.icon size={14} />
+                                                {status.label}
+                                            </span>
                                         </div>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <div className="card">
-                                <div className="card-header">
-                                    <h4 className="card-title">Servicios Realizados</h4>
-                                </div>
-                                <div className="card-body">
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                                        {selectedOrden.servicios.map((servicio, index) => (
-                                            <div key={index} style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 'var(--spacing-md)',
-                                                padding: 'var(--spacing-sm) var(--spacing-md)',
+                                        <div className="grid grid-cols-3" style={{ gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
                                                 backgroundColor: 'var(--gray-50)',
                                                 borderRadius: 'var(--border-radius)'
                                             }}>
-                                                <CheckCircle size={16} style={{ color: 'var(--success-500)' }} />
-                                                <span>{servicio}</span>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-sm)', color: 'var(--text-muted)' }}>
+                                                    <User size={14} />
+                                                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Cliente</span>
+                                                </div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{cliente?.nombre || 'N/A'}</div>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' }}>{cliente?.telefono}</div>
                                             </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
 
-                            {selectedOrden.observaciones && (
-                                <div className="card" style={{ marginTop: 'var(--spacing-md)' }}>
-                                    <div className="card-header">
-                                        <h4 className="card-title">Observaciones</h4>
-                                    </div>
-                                    <div className="card-body">
-                                        <p style={{ margin: 0, color: 'var(--text-secondary)' }}>{selectedOrden.observaciones}</p>
-                                    </div>
-                                </div>
-                            )}
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--gray-50)',
+                                                borderRadius: 'var(--border-radius)'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-sm)', color: 'var(--text-muted)' }}>
+                                                    <Car size={14} />
+                                                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Vehículo</span>
+                                                </div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{vehiculo?.marca} {vehiculo?.modelo}</div>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' }}>{vehiculo?.placa}</div>
+                                            </div>
+
+                                            <div style={{
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--gray-50)',
+                                                borderRadius: 'var(--border-radius)'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-sm)', color: 'var(--text-muted)' }}>
+                                                    <Wrench size={14} />
+                                                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Técnico</span>
+                                                </div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{tecnico?.nombre || 'Sin asignar'}</div>
+                                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' }}>{tecnico?.especialidad || ''}</div>
+                                            </div>
+                                        </div>
+
+                                        {selectedOrden.descripcion && (
+                                            <div style={{ marginBottom: 'var(--spacing-lg)' }}>
+                                                <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Descripción</h4>
+                                                <p style={{ color: 'var(--text-secondary)' }}>{selectedOrden.descripcion}</p>
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </div>
                         <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cerrar</button>
-                            <button className="btn btn-outline">Imprimir</button>
-                            <button className="btn btn-primary">
-                                <Edit2 size={16} />
-                                Editar Orden
-                            </button>
+                            <button className="btn btn-secondary" onClick={handleCloseModal}>Cerrar</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Nueva Orden */}
+            {showNewModal && (
+                <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">Nueva Orden de Trabajo</h2>
+                            <button className="modal-close" onClick={() => setShowNewModal(false)}>×</button>
+                        </div>
+                        <form onSubmit={handleSubmitNewOrder}>
+                            <div className="modal-body">
+                                <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-md)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label required">Cliente</label>
+                                        <select
+                                            className="form-input"
+                                            name="cliente_id"
+                                            value={formData.cliente_id}
+                                            onChange={handleInputChange}
+                                            required
+                                        >
+                                            <option value="">Seleccionar cliente...</option>
+                                            {clientes.map(cliente => (
+                                                <option key={cliente.id} value={cliente.id}>
+                                                    {cliente.nombre}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label required">Vehículo</label>
+                                        <select
+                                            className="form-input"
+                                            name="vehiculo_id"
+                                            value={formData.vehiculo_id}
+                                            onChange={handleInputChange}
+                                            disabled={!formData.cliente_id}
+                                            required
+                                        >
+                                            <option value="">
+                                                {formData.cliente_id
+                                                    ? (vehiculosCliente.length > 0 ? 'Seleccionar vehículo...' : 'Este cliente no tiene vehículos')
+                                                    : 'Primero selecciona cliente'}
+                                            </option>
+                                            {vehiculosCliente.map(vehiculo => (
+                                                <option key={vehiculo.id} value={vehiculo.id}>
+                                                    {vehiculo.marca} {vehiculo.modelo} - {vehiculo.placa}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Técnico Asignado</label>
+                                    <select
+                                        className="form-input"
+                                        name="tecnico_id"
+                                        value={formData.tecnico_id}
+                                        onChange={handleInputChange}
+                                    >
+                                        <option value="">Sin asignar</option>
+                                        {tecnicos.filter(t => t.disponible !== false).map(tecnico => (
+                                            <option key={tecnico.id} value={tecnico.id}>
+                                                {tecnico.nombre} - {tecnico.especialidad}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Descripción del Servicio</label>
+                                    <textarea
+                                        className="form-input"
+                                        name="descripcion"
+                                        value={formData.descripcion}
+                                        onChange={handleInputChange}
+                                        rows={4}
+                                        placeholder="Describe el trabajo a realizar..."
+                                    />
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    {saving ? 'Creando...' : 'Crear Orden'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

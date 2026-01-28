@@ -1,420 +1,467 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
-    BarChart3, TrendingUp, TrendingDown, DollarSign, Users, Car,
-    Wrench, Calendar, Download, Filter, ArrowUpRight, ArrowDownRight
+    TrendingUp, Users, Car, Wrench,
+    BarChart3, PieChart, Clock, Star, RefreshCw, X, CheckCircle
 } from 'lucide-react';
-import {
-    ordenes, clientes, vehiculos, tecnicos, historialServicios,
-    getClienteById, getVehiculoById, getTecnicoById
-} from '../../data/mockData';
+import { ordenesService } from '../../services/ordenesService';
+import { clientesService } from '../../services/clientesService';
+import { vehiculosService } from '../../services/vehiculosService';
+import { tecnicosService } from '../../services/tecnicosService';
 
 const Reportes = () => {
-    const [periodo, setPeriodo] = useState('mes');
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [ordenes, setOrdenes] = useState([]);
+    const [clientes, setClientes] = useState([]);
+    const [vehiculos, setVehiculos] = useState([]);
+    const [tecnicos, setTecnicos] = useState([]);
+    const [selectedPeriod, setSelectedPeriod] = useState('month');
 
-    // Estadísticas generales
-    const totalServicios = historialServicios.length;
-    const ingresosTotales = historialServicios.reduce((sum, h) => sum + h.costo, 0);
-    const promedioServicio = Math.round(ingresosTotales / totalServicios);
-    const serviciosGarantia = historialServicios.filter(h => h.tipo.includes('Garantía')).length;
+    const loadData = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
 
-    // Servicios por tipo
-    const serviciosPorTipo = historialServicios.reduce((acc, h) => {
-        acc[h.tipo] = (acc[h.tipo] || 0) + 1;
-        return acc;
-    }, {});
+            const [ordenesRes, clientesRes, vehiculosRes, tecnicosRes] = await Promise.all([
+                ordenesService.getAll(),
+                clientesService.getAll(),
+                vehiculosService.getAll(),
+                tecnicosService.getAll()
+            ]);
 
-    const tiposOrdenados = Object.entries(serviciosPorTipo)
-        .sort(([, a], [, b]) => b - a);
+            setOrdenes(ordenesRes.data || []);
+            setClientes(clientesRes.data || []);
+            setVehiculos(vehiculosRes.data || []);
+            setTecnicos(tecnicosRes.data || []);
+        } catch (err) {
+            console.error('Error loading data:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
-    // Rendimiento de técnicos
-    const rendimientoTecnicos = tecnicos.map(t => {
-        const servicios = historialServicios.filter(h => h.tecnicoId === t.id);
-        const ingresos = servicios.reduce((sum, s) => sum + s.costo, 0);
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    // Calculate statistics from local data
+    const calculateStats = useCallback(() => {
+        const hoy = new Date();
+        let fechaDesde = new Date();
+
+        switch (selectedPeriod) {
+            case 'week':
+                fechaDesde.setDate(hoy.getDate() - 7);
+                break;
+            case 'month':
+                fechaDesde.setMonth(hoy.getMonth() - 1);
+                break;
+            case 'quarter':
+                fechaDesde.setMonth(hoy.getMonth() - 3);
+                break;
+            case 'year':
+                fechaDesde.setFullYear(hoy.getFullYear() - 1);
+                break;
+            default:
+                fechaDesde.setMonth(hoy.getMonth() - 1);
+        }
+
+        // Filter orders by period
+        const ordenesEnPeriodo = ordenes.filter(o => {
+            const fecha = new Date(o.fecha_ingreso || o.created_at);
+            return fecha >= fechaDesde && fecha <= hoy;
+        });
+
+        const ordenesCompletadas = ordenesEnPeriodo.filter(o =>
+            o.estado === 'completado' || o.estado === 'entregado'
+        );
+
+        // Orders by status
+        const ordenesActivas = ordenes.filter(o =>
+            o.estado === 'pendiente' || o.estado === 'en-proceso'
+        ).length;
+
+        // Technician performance
+        const tecnicoPerformance = tecnicos.map(tecnico => {
+            const ordenesDelTecnico = ordenes.filter(o => o.tecnico_id === tecnico.id);
+            const completadas = ordenesDelTecnico.filter(o =>
+                o.estado === 'completado' || o.estado === 'entregado'
+            ).length;
+
+            return {
+                ...tecnico,
+                ordenesCompletadas: completadas
+            };
+        }).sort((a, b) => b.ordenesCompletadas - a.ordenesCompletadas);
+
+        // Top clients by visits
+        const clienteOrdenes = {};
+        ordenes.forEach(orden => {
+            if (orden.cliente_id) {
+                if (!clienteOrdenes[orden.cliente_id]) {
+                    clienteOrdenes[orden.cliente_id] = {
+                        visitas: 0
+                    };
+                }
+                clienteOrdenes[orden.cliente_id].visitas++;
+            }
+        });
+
+        const topClientes = clientes
+            .map(cliente => ({
+                ...cliente,
+                visitas: clienteOrdenes[cliente.id]?.visitas || 0
+            }))
+            .filter(c => c.visitas > 0)
+            .sort((a, b) => b.visitas - a.visitas)
+            .slice(0, 5);
+
         return {
-            ...t,
-            serviciosCompletados: servicios.length,
-            ingresos
+            totalOrdenes: ordenesEnPeriodo.length,
+            ordenesCompletadas: ordenesCompletadas.length,
+            ordenesActivas,
+            totalClientes: clientes.length,
+            totalVehiculos: vehiculos.length,
+            totalTecnicos: tecnicos.length,
+            tecnicoPerformance,
+            topClientes
         };
-    }).sort((a, b) => b.serviciosCompletados - a.serviciosCompletados);
+    }, [ordenes, clientes, vehiculos, tecnicos, selectedPeriod]);
 
-    // Clientes frecuentes
-    const serviciosPorCliente = historialServicios.reduce((acc, h) => {
-        acc[h.clienteId] = (acc[h.clienteId] || 0) + 1;
-        return acc;
-    }, {});
+    const stats = calculateStats();
 
-    const clientesFrecuentes = Object.entries(serviciosPorCliente)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([clienteId, count]) => ({
-            cliente: getClienteById(parseInt(clienteId)),
-            servicios: count
-        }));
+    if (loading) {
+        return (
+            <Layout title="Reportes" subtitle="Reportes y Estadísticas">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '400px',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-md)'
+                }}>
+                    <div className="loading-spinner"></div>
+                    <p style={{ color: 'var(--text-secondary)' }}>Cargando reportes...</p>
+                </div>
+            </Layout>
+        );
+    }
 
-    // Colores para el gráfico de barras simulado
-    const colores = [
-        'var(--primary-500)',
-        'var(--success-500)',
-        'var(--warning-500)',
-        'var(--info-500)',
-        'var(--danger-500)'
-    ];
-
-    const maxServicios = Math.max(...tiposOrdenados.map(([, count]) => count));
+    if (error) {
+        return (
+            <Layout title="Reportes" subtitle="Reportes y Estadísticas">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    height: '400px',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-md)'
+                }}>
+                    <X size={48} style={{ color: 'var(--danger-500)' }} />
+                    <p style={{ color: 'var(--danger-600)' }}>Error al cargar reportes: {error}</p>
+                    <button className="btn btn-primary" onClick={loadData}>Reintentar</button>
+                </div>
+            </Layout>
+        );
+    }
 
     return (
-        <Layout title="Reportes y Estadísticas" subtitle="Reportes">
+        <Layout title="Reportes" subtitle="Reportes y Estadísticas">
             <div className="page-header">
                 <div className="page-header-content">
                     <h1 className="page-title">Reportes y Estadísticas</h1>
-                    <p className="page-subtitle">Análisis detallado del rendimiento del taller</p>
+                    <p className="page-subtitle">Análisis del rendimiento del taller</p>
                 </div>
                 <div className="page-actions">
                     <select
                         className="filter-select"
-                        value={periodo}
-                        onChange={(e) => setPeriodo(e.target.value)}
+                        value={selectedPeriod}
+                        onChange={(e) => setSelectedPeriod(e.target.value)}
                     >
-                        <option value="semana">Esta Semana</option>
-                        <option value="mes">Este Mes</option>
-                        <option value="trimestre">Este Trimestre</option>
-                        <option value="anio">Este Año</option>
+                        <option value="week">Última semana</option>
+                        <option value="month">Último mes</option>
+                        <option value="quarter">Último trimestre</option>
+                        <option value="year">Último año</option>
                     </select>
-                    <button className="btn btn-outline">
-                        <Download size={18} />
-                        Exportar PDF
+                    <button className="btn btn-secondary" onClick={loadData}>
+                        <RefreshCw size={18} />
+                        Actualizar
                     </button>
                 </div>
             </div>
 
             {/* KPIs principales */}
-            <div className="grid grid-cols-4" style={{ marginBottom: 'var(--spacing-lg)' }}>
-                <div className="stats-card">
-                    <div className="stats-card-icon success">
-                        <DollarSign size={24} />
-                    </div>
-                    <div className="stats-card-content">
-                        <div className="stats-card-label">Ingresos Totales</div>
-                        <div className="stats-card-value">Bs. {ingresosTotales.toLocaleString()}</div>
-                        <div className="stats-card-change positive">
-                            <TrendingUp size={12} />
-                            +15.3% vs periodo anterior
-                        </div>
-                    </div>
-                </div>
+            <div className="grid grid-cols-4" style={{ marginBottom: 'var(--spacing-xl)' }}>
                 <div className="stats-card">
                     <div className="stats-card-icon primary">
                         <Wrench size={24} />
                     </div>
                     <div className="stats-card-content">
-                        <div className="stats-card-label">Servicios Realizados</div>
-                        <div className="stats-card-value">{totalServicios}</div>
-                        <div className="stats-card-change positive">
-                            <TrendingUp size={12} />
-                            +8% vs periodo anterior
-                        </div>
+                        <div className="stats-card-label">Órdenes del Período</div>
+                        <div className="stats-card-value">{stats.totalOrdenes}</div>
                     </div>
                 </div>
                 <div className="stats-card">
-                    <div className="stats-card-icon info">
-                        <BarChart3 size={24} />
+                    <div className="stats-card-icon success">
+                        <CheckCircle size={24} />
                     </div>
                     <div className="stats-card-content">
-                        <div className="stats-card-label">Promedio por Servicio</div>
-                        <div className="stats-card-value">Bs. {promedioServicio}</div>
-                        <div className="stats-card-change negative">
-                            <TrendingDown size={12} />
-                            -3% vs periodo anterior
-                        </div>
+                        <div className="stats-card-label">Órdenes Completadas</div>
+                        <div className="stats-card-value">{stats.ordenesCompletadas}</div>
                     </div>
                 </div>
                 <div className="stats-card">
                     <div className="stats-card-icon warning">
+                        <Clock size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Órdenes Activas</div>
+                        <div className="stats-card-value">{stats.ordenesActivas}</div>
+                    </div>
+                </div>
+                <div className="stats-card">
+                    <div className="stats-card-icon info">
+                        <TrendingUp size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Tasa de Completado</div>
+                        <div className="stats-card-value">
+                            {stats.totalOrdenes > 0
+                                ? Math.round((stats.ordenesCompletadas / stats.totalOrdenes) * 100)
+                                : 0}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Secondary Stats */}
+            <div className="grid grid-cols-3" style={{ marginBottom: 'var(--spacing-xl)' }}>
+                <div className="stats-card">
+                    <div className="stats-card-icon primary">
                         <Users size={24} />
                     </div>
                     <div className="stats-card-content">
-                        <div className="stats-card-label">Clientes Atendidos</div>
-                        <div className="stats-card-value">{new Set(historialServicios.map(h => h.clienteId)).size}</div>
-                        <div className="stats-card-change positive">
-                            <TrendingUp size={12} />
-                            +12% vs periodo anterior
-                        </div>
+                        <div className="stats-card-label">Total Clientes</div>
+                        <div className="stats-card-value">{stats.totalClientes}</div>
+                    </div>
+                </div>
+                <div className="stats-card">
+                    <div className="stats-card-icon info">
+                        <Car size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Total Vehículos</div>
+                        <div className="stats-card-value">{stats.totalVehiculos}</div>
+                    </div>
+                </div>
+                <div className="stats-card">
+                    <div className="stats-card-icon success">
+                        <Users size={24} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Técnicos Activos</div>
+                        <div className="stats-card-value">{stats.totalTecnicos}</div>
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-lg)', marginBottom: 'var(--spacing-lg)' }}>
-                {/* Servicios por Tipo */}
+            {/* Two Column Layout */}
+            <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-xl)' }}>
+                {/* Technician Performance */}
                 <div className="card">
                     <div className="card-header">
-                        <h3 className="card-title">Servicios por Tipo</h3>
+                        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                            <BarChart3 size={20} style={{ color: 'var(--primary-500)' }} />
+                            Rendimiento de Técnicos
+                        </h3>
                     </div>
                     <div className="card-body">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                            {tiposOrdenados.map(([tipo, count], index) => (
-                                <div key={tipo}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
-                                            {tipo}
-                                        </span>
-                                        <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                            {count} servicios
-                                        </span>
-                                    </div>
-                                    <div style={{
-                                        height: '8px',
-                                        backgroundColor: 'var(--gray-100)',
-                                        borderRadius: '4px',
-                                        overflow: 'hidden'
-                                    }}>
-                                        <div style={{
-                                            width: `${(count / maxServicios) * 100}%`,
-                                            height: '100%',
-                                            backgroundColor: colores[index % colores.length],
-                                            borderRadius: '4px',
-                                            transition: 'width 0.5s ease'
-                                        }}></div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        {stats.tecnicoPerformance.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+                                {stats.tecnicoPerformance.slice(0, 5).map((tecnico, index) => {
+                                    const maxOrdenes = Math.max(...stats.tecnicoPerformance.map(t => t.ordenesCompletadas)) || 1;
+                                    const porcentaje = (tecnico.ordenesCompletadas / maxOrdenes) * 100;
+
+                                    return (
+                                        <div key={tecnico.id}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                                    <span style={{
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        borderRadius: '50%',
+                                                        backgroundColor: index === 0 ? 'var(--warning-500)' : 'var(--gray-200)',
+                                                        color: index === 0 ? 'white' : 'var(--text-secondary)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontSize: 'var(--font-size-sm)',
+                                                        fontWeight: 'var(--font-weight-bold)'
+                                                    }}>
+                                                        {index + 1}
+                                                    </span>
+                                                    <span style={{ fontWeight: 'var(--font-weight-medium)' }}>
+                                                        {tecnico.nombre}
+                                                    </span>
+                                                </div>
+                                                <div style={{ textAlign: 'right' }}>
+                                                    <span style={{ fontWeight: 'var(--font-weight-bold)' }}>
+                                                        {tecnico.ordenesCompletadas}
+                                                    </span>
+                                                    <span style={{ color: 'var(--text-muted)', marginLeft: '4px' }}>
+                                                        órdenes
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                height: '8px',
+                                                backgroundColor: 'var(--gray-100)',
+                                                borderRadius: 'var(--border-radius-full)',
+                                                overflow: 'hidden'
+                                            }}>
+                                                <div style={{
+                                                    height: '100%',
+                                                    width: `${porcentaje}%`,
+                                                    backgroundColor: index === 0 ? 'var(--success-500)' : 'var(--primary-500)',
+                                                    borderRadius: 'var(--border-radius-full)',
+                                                    transition: 'width 0.3s ease'
+                                                }} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: 'var(--spacing-xl)', color: 'var(--text-muted)' }}>
+                                No hay datos de técnicos
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Rendimiento de Técnicos */}
+                {/* Top Clients */}
                 <div className="card">
                     <div className="card-header">
-                        <h3 className="card-title">Rendimiento de Técnicos</h3>
+                        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                            <Star size={20} style={{ color: 'var(--warning-500)' }} />
+                            Clientes Más Frecuentes
+                        </h3>
                     </div>
                     <div className="card-body">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                            {rendimientoTecnicos.map((tecnico, index) => (
-                                <div key={tecnico.id} style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--spacing-md)',
-                                    padding: 'var(--spacing-sm)',
-                                    backgroundColor: index === 0 ? 'var(--success-50)' : 'transparent',
-                                    borderRadius: 'var(--border-radius)'
-                                }}>
-                                    <span style={{
-                                        width: '24px',
-                                        height: '24px',
+                        {stats.topClientes.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+                                {stats.topClientes.map((cliente, index) => (
+                                    <div
+                                        key={cliente.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            padding: 'var(--spacing-sm)',
+                                            backgroundColor: index === 0 ? 'var(--warning-50)' : 'var(--gray-50)',
+                                            borderRadius: 'var(--border-radius)',
+                                            border: index === 0 ? '1px solid var(--warning-200)' : 'none'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                            <div className="avatar" style={{
+                                                width: '36px',
+                                                height: '36px',
+                                                fontSize: 'var(--font-size-sm)',
+                                                background: index === 0
+                                                    ? 'linear-gradient(135deg, var(--warning-500), var(--warning-600))'
+                                                    : 'linear-gradient(135deg, var(--primary-500), var(--primary-600))'
+                                            }}>
+                                                {cliente.nombre?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontWeight: 'var(--font-weight-medium)' }}>
+                                                    {cliente.nombre}
+                                                </div>
+                                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
+                                                    {cliente.telefono || 'Sin teléfono'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{
+                                            fontWeight: 'var(--font-weight-bold)',
+                                            color: 'var(--primary-600)'
+                                        }}>
+                                            {cliente.visitas} visitas
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: 'var(--spacing-xl)', color: 'var(--text-muted)' }}>
+                                No hay datos de clientes
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Order Status Distribution */}
+            <div className="card" style={{ marginTop: 'var(--spacing-xl)' }}>
+                <div className="card-header">
+                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                        <PieChart size={20} style={{ color: 'var(--primary-500)' }} />
+                        Distribución de Órdenes por Estado
+                    </h3>
+                </div>
+                <div className="card-body">
+                    <div className="grid grid-cols-4" style={{ gap: 'var(--spacing-lg)' }}>
+                        {[
+                            { estado: 'pendiente', label: 'Pendientes', color: 'var(--warning-500)' },
+                            { estado: 'en-proceso', label: 'En Proceso', color: 'var(--info-500)' },
+                            { estado: 'completado', label: 'Completadas', color: 'var(--success-500)' },
+                            { estado: 'entregado', label: 'Entregadas', color: 'var(--primary-500)' }
+                        ].map(item => {
+                            const count = ordenes.filter(o => o.estado === item.estado).length;
+                            const porcentaje = ordenes.length > 0 ? (count / ordenes.length) * 100 : 0;
+
+                            return (
+                                <div key={item.estado} style={{ textAlign: 'center' }}>
+                                    <div style={{
+                                        width: '100px',
+                                        height: '100px',
+                                        borderRadius: '50%',
+                                        background: `conic-gradient(${item.color} ${porcentaje}%, var(--gray-200) ${porcentaje}%)`,
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        borderRadius: 'var(--border-radius-full)',
-                                        backgroundColor: index === 0 ? 'var(--success-500)' : 'var(--gray-200)',
-                                        color: index === 0 ? 'white' : 'var(--text-secondary)',
-                                        fontSize: 'var(--font-size-xs)',
-                                        fontWeight: 'var(--font-weight-bold)'
+                                        margin: '0 auto var(--spacing-md)'
                                     }}>
-                                        {index + 1}
-                                    </span>
-                                    <div className="avatar avatar-sm" style={{
-                                        background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))'
-                                    }}>
-                                        {tecnico.nombre.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 'var(--font-weight-medium)', fontSize: 'var(--font-size-sm)' }}>
-                                            {tecnico.nombre}
-                                        </div>
-                                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>
-                                            {tecnico.especialidad}
-                                        </div>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontWeight: 'var(--font-weight-bold)', fontSize: 'var(--font-size-sm)' }}>
-                                            {tecnico.serviciosCompletados}
-                                        </div>
-                                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>
-                                            servicios
+                                        <div style={{
+                                            width: '70px',
+                                            height: '70px',
+                                            borderRadius: '50%',
+                                            backgroundColor: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexDirection: 'column'
+                                        }}>
+                                            <span style={{
+                                                fontSize: 'var(--font-size-xl)',
+                                                fontWeight: 'var(--font-weight-bold)',
+                                                color: item.color
+                                            }}>
+                                                {count}
+                                            </span>
                                         </div>
                                     </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontWeight: 'var(--font-weight-bold)', fontSize: 'var(--font-size-sm)', color: 'var(--success-600)' }}>
-                                            Bs. {tecnico.ingresos.toLocaleString()}
-                                        </div>
-                                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>
-                                            generados
-                                        </div>
+                                    <div style={{ fontWeight: 'var(--font-weight-medium)' }}>{item.label}</div>
+                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' }}>
+                                        {porcentaje.toFixed(0)}%
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-3" style={{ gap: 'var(--spacing-lg)' }}>
-                {/* Clientes Frecuentes */}
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Clientes Frecuentes</h3>
-                    </div>
-                    <div className="card-body">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                            {clientesFrecuentes.map(({ cliente, servicios }, index) => (
-                                <div key={cliente?.id} style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--spacing-md)'
-                                }}>
-                                    <div className="avatar avatar-sm" style={{
-                                        background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))'
-                                    }}>
-                                        {cliente?.nombre.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 'var(--font-weight-medium)', fontSize: 'var(--font-size-sm)' }}>
-                                            {cliente?.nombre.split(' ').slice(0, 2).join(' ')}
-                                        </div>
-                                    </div>
-                                    <span style={{
-                                        padding: '4px 10px',
-                                        backgroundColor: 'var(--primary-100)',
-                                        color: 'var(--primary-700)',
-                                        borderRadius: 'var(--border-radius-full)',
-                                        fontSize: 'var(--font-size-xs)',
-                                        fontWeight: 'var(--font-weight-bold)'
-                                    }}>
-                                        {servicios} visitas
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Resumen de Estado de Órdenes */}
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Estado de Órdenes</h3>
-                    </div>
-                    <div className="card-body">
-                        {(() => {
-                            const estados = [
-                                { key: 'pendiente', label: 'Pendientes', color: 'warning' },
-                                { key: 'en-proceso', label: 'En Proceso', color: 'info' },
-                                { key: 'completado', label: 'Completados', color: 'success' },
-                                { key: 'entregado', label: 'Entregados', color: 'primary' }
-                            ];
-
-                            return (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                                    {estados.map(estado => {
-                                        const count = ordenes.filter(o => o.estado === estado.key).length;
-                                        const percent = Math.round((count / ordenes.length) * 100);
-
-                                        return (
-                                            <div key={estado.key}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                                    <span style={{ fontSize: 'var(--font-size-sm)' }}>{estado.label}</span>
-                                                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' }}>
-                                                        {count} ({percent}%)
-                                                    </span>
-                                                </div>
-                                                <div style={{
-                                                    height: '6px',
-                                                    backgroundColor: 'var(--gray-100)',
-                                                    borderRadius: '3px'
-                                                }}>
-                                                    <div style={{
-                                                        width: `${percent}%`,
-                                                        height: '100%',
-                                                        backgroundColor: `var(--${estado.color}-500)`,
-                                                        borderRadius: '3px'
-                                                    }}></div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
                                 </div>
                             );
-                        })()}
-                    </div>
-                </div>
-
-                {/* Métricas Rápidas */}
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Métricas del Período</h3>
-                    </div>
-                    <div className="card-body">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: 'var(--spacing-sm)',
-                                backgroundColor: 'var(--gray-50)',
-                                borderRadius: 'var(--border-radius)'
-                            }}>
-                                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                    Tiempo promedio de servicio
-                                </span>
-                                <span style={{ fontWeight: 'var(--font-weight-bold)' }}>2.5 días</span>
-                            </div>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: 'var(--spacing-sm)',
-                                backgroundColor: 'var(--gray-50)',
-                                borderRadius: 'var(--border-radius)'
-                            }}>
-                                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                    Tasa de satisfacción
-                                </span>
-                                <span style={{ fontWeight: 'var(--font-weight-bold)', color: 'var(--success-600)' }}>94%</span>
-                            </div>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: 'var(--spacing-sm)',
-                                backgroundColor: 'var(--gray-50)',
-                                borderRadius: 'var(--border-radius)'
-                            }}>
-                                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                    Servicios en garantía
-                                </span>
-                                <span style={{ fontWeight: 'var(--font-weight-bold)' }}>{serviciosGarantia}</span>
-                            </div>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: 'var(--spacing-sm)',
-                                backgroundColor: 'var(--gray-50)',
-                                borderRadius: 'var(--border-radius)'
-                            }}>
-                                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                    Nuevos clientes
-                                </span>
-                                <span style={{ fontWeight: 'var(--font-weight-bold)', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--success-600)' }}>
-                                    <ArrowUpRight size={14} />
-                                    3
-                                </span>
-                            </div>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: 'var(--spacing-sm)',
-                                backgroundColor: 'var(--gray-50)',
-                                borderRadius: 'var(--border-radius)'
-                            }}>
-                                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-                                    Vehículos atendidos
-                                </span>
-                                <span style={{ fontWeight: 'var(--font-weight-bold)' }}>
-                                    {new Set(historialServicios.map(h => h.vehiculoId)).size}
-                                </span>
-                            </div>
-                        </div>
+                        })}
                     </div>
                 </div>
             </div>
