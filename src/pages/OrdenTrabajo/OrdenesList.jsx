@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
     Search, Plus, Eye, Clock, CheckCircle, Wrench,
-    User, Car, X
+    User, Car, X, Trash2
 } from 'lucide-react';
 import { ordenesService } from '../../services/ordenesService';
 import { clientesService } from '../../services/clientesService';
@@ -124,7 +124,6 @@ const OrdenesList = () => {
         setSaving(true);
 
         try {
-            // Sin prioridad - el campo no existe en la BD
             await ordenesService.create({
                 cliente_id: formData.cliente_id,
                 vehiculo_id: formData.vehiculo_id,
@@ -133,6 +132,11 @@ const OrdenesList = () => {
                 estado: 'pendiente',
                 fecha_ingreso: new Date().toISOString()
             });
+
+            // Si se asignó un técnico, marcarlo como no disponible
+            if (formData.tecnico_id) {
+                await tecnicosService.update(formData.tecnico_id, { disponible: false });
+            }
 
             setShowNewModal(false);
             setFormData({
@@ -148,6 +152,26 @@ const OrdenesList = () => {
             alert('Error al crear orden: ' + err.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleDeleteOrder = async (orden) => {
+        if (!window.confirm(`¿Estás seguro de eliminar la orden #${orden.id.slice(0, 8)}?`)) {
+            return;
+        }
+
+        try {
+            // Si la orden tenía un técnico asignado y no está completada/entregada,
+            // liberamos al técnico
+            if (orden.tecnico_id && orden.estado !== 'completado' && orden.estado !== 'entregado') {
+                await tecnicosService.update(orden.tecnico_id, { disponible: true });
+            }
+
+            await ordenesService.delete(orden.id);
+            await loadData();
+        } catch (err) {
+            console.error('Error deleting order:', err);
+            alert('Error al eliminar orden: ' + err.message);
         }
     };
 
@@ -339,12 +363,23 @@ const OrdenesList = () => {
                                             : '-'}
                                     </td>
                                     <td>
-                                        <button
-                                            className="btn btn-ghost btn-icon"
-                                            onClick={() => handleViewDetails(orden)}
-                                        >
-                                            <Eye size={18} />
-                                        </button>
+                                        <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                                            <button
+                                                className="btn btn-ghost btn-icon"
+                                                onClick={() => handleViewDetails(orden)}
+                                                title="Ver detalles"
+                                            >
+                                                <Eye size={18} />
+                                            </button>
+                                            <button
+                                                className="btn btn-ghost btn-icon"
+                                                onClick={() => handleDeleteOrder(orden)}
+                                                title="Eliminar"
+                                                style={{ color: 'var(--danger-500)' }}
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             );
