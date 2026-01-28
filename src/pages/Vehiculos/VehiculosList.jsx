@@ -519,7 +519,7 @@ const VehiculosList = () => {
                                             name="placa"
                                             value={formData.placa}
                                             onChange={handleInputChange}
-                                            placeholder="ABC-1234"
+                                            placeholder="1234ABC"
                                             style={{ textTransform: 'uppercase' }}
                                             required
                                         />
@@ -553,17 +553,19 @@ const VehiculosList = () => {
                                     </div>
                                 </div>
 
-                                <div className="form-group">
-                                    <label className="form-label">VIN (Número de Serie)</label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        name="vin"
-                                        value={formData.vin}
-                                        onChange={handleInputChange}
-                                        placeholder="Número de identificación del vehículo"
-                                    />
-                                </div>
+                                {/*
+                                    <div className="form-group">
+                                        <label className="form-label">VIN (Número de Serie)</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            name="vin"
+                                            value={formData.vin}
+                                            onChange={handleInputChange}
+                                            placeholder="Número de identificación del vehículo"
+                                        />
+                                    </div>
+                                */}
                             </div>
                             <div className="modal-footer">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
