@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
     Search, RefreshCw, Clock, Wrench, CheckCircle, Truck,
-    User, Car, X, AlertCircle
+    User, Car, X, AlertCircle, Eye
 } from 'lucide-react';
 import { ordenesService } from '../../services/ordenesService';
 import { clientesService } from '../../services/clientesService';
 import { vehiculosService } from '../../services/vehiculosService';
 import { tecnicosService } from '../../services/tecnicosService';
+import { useAuth } from '../../context/AuthContext';
 
 const SeguimientoServicios = () => {
+    const { user } = useAuth();
     const [ordenes, setOrdenes] = useState([]);
     const [clientes, setClientes] = useState([]);
     const [vehiculos, setVehiculos] = useState([]);
@@ -21,6 +23,9 @@ const SeguimientoServicios = () => {
     const [showModal, setShowModal] = useState(false);
     const [selectedOrden, setSelectedOrden] = useState(null);
     const [updating, setUpdating] = useState(false);
+
+    // Check if user is receptionist (read-only mode)
+    const isReadOnly = user?.rol === 'recepcionista';
 
     useEffect(() => {
         loadData();
@@ -438,26 +443,43 @@ const SeguimientoServicios = () => {
                                             </div>
                                         </div>
 
-                                        {/* Quick Actions */}
-                                        <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-                                            <h4 style={{ marginBottom: 'var(--spacing-md)' }}>Cambiar Estado</h4>
-                                            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
-                                                {estados.map(estado => (
-                                                    <button
-                                                        key={estado.value}
-                                                        className={`btn ${selectedOrden.estado === estado.value ? 'btn-primary' : 'btn-secondary'}`}
-                                                        onClick={() => handleChangeStatus(selectedOrden.id, estado.value)}
-                                                        disabled={updating || selectedOrden.estado === estado.value}
-                                                        style={{
-                                                            opacity: selectedOrden.estado === estado.value ? 1 : 0.8
-                                                        }}
-                                                    >
-                                                        <estado.icon size={16} />
-                                                        {estado.label}
-                                                    </button>
-                                                ))}
+                                        {/* Quick Actions - Only for non-receptionists */}
+                                        {!isReadOnly ? (
+                                            <div style={{ marginBottom: 'var(--spacing-lg)' }}>
+                                                <h4 style={{ marginBottom: 'var(--spacing-md)' }}>Cambiar Estado</h4>
+                                                <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
+                                                    {estados.map(estado => (
+                                                        <button
+                                                            key={estado.value}
+                                                            className={`btn ${selectedOrden.estado === estado.value ? 'btn-primary' : 'btn-secondary'}`}
+                                                            onClick={() => handleChangeStatus(selectedOrden.id, estado.value)}
+                                                            disabled={updating || selectedOrden.estado === estado.value}
+                                                            style={{
+                                                                opacity: selectedOrden.estado === estado.value ? 1 : 0.8
+                                                            }}
+                                                        >
+                                                            <estado.icon size={16} />
+                                                            {estado.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
+                                        ) : (
+                                            <div style={{
+                                                marginBottom: 'var(--spacing-lg)',
+                                                padding: 'var(--spacing-md)',
+                                                backgroundColor: 'var(--info-50)',
+                                                borderRadius: 'var(--border-radius)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 'var(--spacing-sm)'
+                                            }}>
+                                                <Eye size={18} style={{ color: 'var(--info-600)' }} />
+                                                <span style={{ color: 'var(--info-700)' }}>
+                                                    Modo solo lectura - Solo puedes ver el estado de las órdenes
+                                                </span>
+                                            </div>
+                                        )}
 
                                         {/* Order Info */}
                                         <div className="grid grid-cols-3" style={{ gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
