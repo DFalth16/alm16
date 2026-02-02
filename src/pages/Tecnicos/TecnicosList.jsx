@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
     Search, Plus, Eye, Wrench, Star, Phone, Mail,
-    CheckCircle, X, User, Clock
+    CheckCircle, X, User, Clock, Edit2, Trash2
 } from 'lucide-react';
 import { tecnicosService } from '../../services/tecnicosService';
 import { ordenesService } from '../../services/ordenesService';
+import { validateEmail, validatePhone, validateName } from '../../utils/validations';
 
 const TecnicosList = () => {
     const [tecnicos, setTecnicos] = useState([]);
@@ -14,7 +15,9 @@ const TecnicosList = () => {
     const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [showNewModal, setShowNewModal] = useState(false);
+    const [showFormModal, setShowFormModal] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editingTecnico, setEditingTecnico] = useState(null);
     const [selectedTecnico, setSelectedTecnico] = useState(null);
 
     // Form state
@@ -24,6 +27,7 @@ const TecnicosList = () => {
         telefono: '',
         email: ''
     });
+    const [formErrors, setFormErrors] = useState({});
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -90,34 +94,106 @@ const TecnicosList = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmitNewTecnico = async (e) => {
+    const resetFormData = () => {
+        setFormData({ nombre: '', especialidad: '', telefono: '', email: '' });
+    };
+
+    // Abrir modal para nuevo técnico
+    const handleOpenNewModal = () => {
+        setIsEditing(false);
+        setEditingTecnico(null);
+        resetFormData();
+        setFormErrors({});
+        setShowFormModal(true);
+    };
+
+    // Abrir modal para editar técnico
+    const handleEditTecnico = (tecnico) => {
+        setIsEditing(true);
+        setEditingTecnico(tecnico);
+        setFormData({
+            nombre: tecnico.nombre || '',
+            especialidad: tecnico.especialidad || '',
+            telefono: tecnico.telefono || '',
+            email: tecnico.email || ''
+        });
+        setFormErrors({});
+        setShowFormModal(true);
+        setShowModal(false);
+    };
+
+    // Validar formulario
+    const validateFormData = () => {
+        const errors = {};
+
+        const nameResult = validateName(formData.nombre, 'nombre');
+        if (!nameResult.valid) errors.nombre = nameResult.message;
+
+        const emailResult = validateEmail(formData.email);
+        if (!emailResult.valid) errors.email = emailResult.message;
+
+        const phoneResult = validatePhone(formData.telefono);
+        if (!phoneResult.valid) errors.telefono = phoneResult.message;
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    // Guardar técnico (crear o editar)
+    const handleSubmitForm = async (e) => {
         e.preventDefault();
 
-        if (!formData.nombre) {
-            alert('El nombre es requerido');
+        if (!validateFormData()) {
             return;
         }
 
         setSaving(true);
 
         try {
-            await tecnicosService.create({
+            const tecnicoData = {
                 nombre: formData.nombre,
                 especialidad: formData.especialidad || 'General',
                 telefono: formData.telefono || null,
-                email: formData.email || null,
-                disponible: true,
-                calificacion: 5.0
-            });
+                email: formData.email || null
+            };
 
-            setShowNewModal(false);
-            setFormData({ nombre: '', especialidad: '', telefono: '', email: '' });
+            if (isEditing && editingTecnico) {
+                await tecnicosService.update(editingTecnico.id, tecnicoData);
+            } else {
+                await tecnicosService.create({
+                    ...tecnicoData,
+                    disponible: true,
+                    calificacion: 5.0
+                });
+            }
+
+            setShowFormModal(false);
+            resetFormData();
+            setIsEditing(false);
+            setEditingTecnico(null);
             await loadData();
         } catch (err) {
-            console.error('Error creating technician:', err);
-            alert('Error al crear técnico: ' + err.message);
+            console.error('Error saving technician:', err);
+            alert('Error al guardar técnico: ' + err.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Eliminar técnico
+    const handleDeleteTecnico = async (tecnico) => {
+        if (!window.confirm(`¿Estás seguro de eliminar al técnico "${tecnico.nombre}"?\n\nEsta acción no se puede deshacer.`)) {
+            return;
+        }
+
+        try {
+            await tecnicosService.delete(tecnico.id);
+            setShowModal(false);
+            setSelectedTecnico(null);
+            await loadData();
+        } catch (err) {
+            console.error('Error deleting technician:', err);
+            alert('Error al eliminar técnico: ' + err.message);
         }
     };
 
@@ -186,7 +262,7 @@ const TecnicosList = () => {
                     <p className="page-subtitle">Gestiona tu equipo de técnicos</p>
                 </div>
                 <div className="page-actions">
-                    <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                    <button className="btn btn-primary" onClick={handleOpenNewModal}>
                         <Plus size={18} />
                         Nuevo Técnico
                     </button>
@@ -266,12 +342,30 @@ const TecnicosList = () => {
                                             </span>
                                         </div>
                                     </div>
-                                    <button
-                                        className="btn btn-ghost btn-icon"
-                                        onClick={() => handleViewDetails(tecnico)}
-                                    >
-                                        <Eye size={18} />
-                                    </button>
+                                    <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleEditTecnico(tecnico)}
+                                            title="Editar"
+                                        >
+                                            <Edit2 size={18} />
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleViewDetails(tecnico)}
+                                            title="Ver detalles"
+                                        >
+                                            <Eye size={18} />
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleDeleteTecnico(tecnico)}
+                                            title="Eliminar"
+                                            style={{ color: 'var(--danger-500)' }}
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Rating */}
@@ -335,7 +429,7 @@ const TecnicosList = () => {
                         {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega tu primer técnico'}
                     </p>
                     {!searchTerm && (
-                        <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                        <button className="btn btn-primary" onClick={handleOpenNewModal}>
                             <Plus size={18} />
                             Nuevo Técnico
                         </button>
@@ -448,21 +542,33 @@ const TecnicosList = () => {
                             })()}
                         </div>
                         <div className="modal-footer">
+                            <button
+                                className="btn btn-danger"
+                                onClick={() => handleDeleteTecnico(selectedTecnico)}
+                                style={{ marginRight: 'auto' }}
+                            >
+                                <Trash2 size={16} />
+                                Eliminar
+                            </button>
                             <button className="btn btn-secondary" onClick={handleCloseModal}>Cerrar</button>
+                            <button className="btn btn-primary" onClick={() => handleEditTecnico(selectedTecnico)}>
+                                <Edit2 size={16} />
+                                Editar Técnico
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Modal Nuevo Técnico */}
-            {showNewModal && (
-                <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
+            {/* Modal Nuevo/Editar Técnico */}
+            {showFormModal && (
+                <div className="modal-overlay" onClick={() => setShowFormModal(false)}>
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2 className="modal-title">Nuevo Técnico</h2>
-                            <button className="modal-close" onClick={() => setShowNewModal(false)}>×</button>
+                            <h2 className="modal-title">{isEditing ? 'Editar Técnico' : 'Nuevo Técnico'}</h2>
+                            <button className="modal-close" onClick={() => setShowFormModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleSubmitNewTecnico}>
+                        <form onSubmit={handleSubmitForm}>
                             <div className="modal-body">
                                 <div className="form-group">
                                     <label className="form-label required">Nombre Completo</label>
@@ -522,11 +628,11 @@ const TecnicosList = () => {
                                 </div>
                             </div>
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowFormModal(false)}>
                                     Cancelar
                                 </button>
                                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? 'Guardando...' : 'Guardar Técnico'}
+                                    {saving ? 'Guardando...' : (isEditing ? 'Actualizar' : 'Guardar Técnico')}
                                 </button>
                             </div>
                         </form>

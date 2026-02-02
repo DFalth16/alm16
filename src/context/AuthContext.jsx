@@ -1,8 +1,12 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { authService } from '../services/authService';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 
 // Crear el contexto
 const AuthContext = createContext(null);
+
+// Flag global para indicar que se está creando un usuario
+export let isCreatingUser = false;
+export const setCreatingUser = (value) => { isCreatingUser = value; };
 
 // Provider del contexto de autenticación
 export const AuthProvider = ({ children }) => {
@@ -10,87 +14,92 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Verificar sesión al montar el componente
-    useEffect(() => {
-        console.log('AuthContext: Inicializando...');
-        checkUserSession();
+    // Cargar usuario desde sesión
+    const loadUser = useCallback(async () => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
 
-        // Escuchar cambios en el estado de autenticación
-        const { data: authListener } = authService.onAuthStateChange(async (event, session) => {
-            console.log('AuthContext: Cambio de estado de auth:', event);
-            if (event === 'SIGNED_IN' && session) {
-                await loadUserData();
-            } else if (event === 'SIGNED_OUT') {
+            if (!session?.user) {
+                setUser(null);
+                return null;
+            }
+
+            // Obtener datos de la tabla usuarios
+            const { data: userData } = await supabase
+                .from('usuarios')
+                .select('*')
+                .eq('id', session.user.id)
+                .single();
+
+            const fullUser = {
+                ...session.user,
+                ...(userData || { rol: 'operador', activo: true })
+            };
+
+            setUser(fullUser);
+            return fullUser;
+        } catch (err) {
+            console.error('Error cargando usuario:', err);
+            return null;
+        }
+    }, []);
+
+    // Solo cargar usuario UNA VEZ al iniciar
+    useEffect(() => {
+        let mounted = true;
+
+        const init = async () => {
+            await loadUser();
+            if (mounted) {
+                setLoading(false);
+            }
+        };
+
+        init();
+
+        // Solo escuchar logout explícito
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+            if (isCreatingUser) return; // Ignorar si estamos creando usuario
+
+            if (event === 'SIGNED_OUT') {
                 setUser(null);
             }
         });
 
         return () => {
-            authListener?.subscription?.unsubscribe();
+            mounted = false;
+            subscription?.unsubscribe();
         };
-    }, []);
+    }, [loadUser]);
 
-    // Verificar si hay una sesión activa
-    const checkUserSession = async () => {
-        try {
-            console.log('AuthContext: Verificando sesión...');
-            setLoading(true);
-            const currentUser = await authService.getCurrentUser();
-            console.log('AuthContext: Usuario obtenido:', currentUser);
-            setUser(currentUser);
-        } catch (err) {
-            console.error('AuthContext: Error verificando sesión:', err);
-            setError(err.message);
-            setUser(null);
-        } finally {
-            setLoading(false);
-            console.log('AuthContext: Verificación completada');
-        }
-    };
-
-    // Cargar datos del usuario
-    const loadUserData = async () => {
-        try {
-            setLoading(true);
-            console.log('AuthContext: Cargando datos de usuario...');
-            const currentUser = await authService.getCurrentUser();
-            console.log('AuthContext: Datos cargados:', currentUser);
-            setUser(currentUser);
-        } catch (err) {
-            console.error('AuthContext: Error cargando datos de usuario:', err);
-            setError(err.message);
-            setUser(null);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Función de login
+    // Login
     const login = async (email, password) => {
         try {
             setLoading(true);
             setError(null);
-            const userData = await authService.login(email, password);
-            setUser(userData);
-            return userData;
-        } catch (err) {
-            console.error('Error en login:', err);
-            setError(err.message || 'Error al iniciar sesión');
-            throw err;
-        } finally {
-            setLoading(false);
-        }
-    };
 
-    // Función de logout
-    const logout = async () => {
-        try {
-            setLoading(true);
-            await authService.logout();
-            setUser(null);
-            setError(null);
+            const { data, error: authError } = await supabase.auth.signInWithPassword({
+                email,
+                password
+            });
+
+            if (authError) throw authError;
+
+            // Obtener datos adicionales
+            const { data: userData } = await supabase
+                .from('usuarios')
+                .select('*')
+                .eq('id', data.user.id)
+                .single();
+
+            const fullUser = {
+                ...data.user,
+                ...(userData || { rol: 'operador', activo: true })
+            };
+
+            setUser(fullUser);
+            return fullUser;
         } catch (err) {
-            console.error('Error en logout:', err);
             setError(err.message);
             throw err;
         } finally {
@@ -98,7 +107,17 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Verificar si el usuario tiene un rol específico
+    // Logout
+    const logout = async () => {
+        try {
+            await supabase.auth.signOut();
+            setUser(null);
+        } catch (err) {
+            console.error('Error en logout:', err);
+        }
+    };
+
+    // Verificar rol
     const hasRole = (roles) => {
         if (!user) return false;
         if (Array.isArray(roles)) {
@@ -107,9 +126,9 @@ export const AuthProvider = ({ children }) => {
         return user.rol === roles;
     };
 
-    // Verificar si el usuario está autenticado
+    // Verificar autenticación
     const isAuthenticated = () => {
-        return !!user && user.activo;
+        return !!user && user.activo !== false;
     };
 
     const value = {
@@ -120,7 +139,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         hasRole,
         isAuthenticated,
-        checkUserSession
+        refreshUser: loadUser
     };
 
     return (
@@ -130,7 +149,7 @@ export const AuthProvider = ({ children }) => {
     );
 };
 
-// Hook personalizado para usar el contexto de autenticación
+// Hook personalizado
 export const useAuth = () => {
     const context = useContext(AuthContext);
     if (!context) {

@@ -87,44 +87,27 @@ export const authService = {
      */
     async getCurrentUser() {
         try {
-            console.log('authService: Obteniendo usuario actual...');
+            // Primero verificar si hay sesión (más rápido que getUser)
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-            // Agregar timeout de 5 segundos
-            const getUserPromise = supabase.auth.getUser();
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Timeout obteniendo usuario')), 5000)
-            );
-
-            const { data: { user }, error: sessionError } = await Promise.race([
-                getUserPromise,
-                timeoutPromise
-            ]);
-
-            console.log('authService: Respuesta de getUser:', { user, sessionError });
-
-            if (sessionError || !user) {
-                console.log('authService: No hay sesión o hubo error');
+            if (sessionError || !session) {
                 return null;
             }
 
-            console.log('authService: Consultando tabla usuarios para ID:', user.id);
+            const user = session.user;
+            if (!user) {
+                return null;
+            }
 
-            // Obtener datos adicionales de la tabla usuarios con timeout
-            const getUserDataPromise = supabase
+            // Obtener datos adicionales de la tabla usuarios
+            const { data: userData, error: userError } = await supabase
                 .from('usuarios')
                 .select('*')
                 .eq('id', user.id)
                 .single();
 
-            const { data: userData, error: userError } = await Promise.race([
-                getUserDataPromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout consultando usuarios')), 5000))
-            ]);
-
-            console.log('authService: Respuesta de tabla usuarios:', { userData, userError });
-
             if (userError) {
-                console.error('authService: Error obteniendo datos de usuario:', userError);
+                // Si no hay datos en usuarios, devolver datos básicos del auth
                 return {
                     ...user,
                     rol: 'operador',
@@ -132,12 +115,10 @@ export const authService = {
                 };
             }
 
-            const finalUser = {
+            return {
                 ...user,
                 ...userData
             };
-            console.log('authService: Usuario final:', finalUser);
-            return finalUser;
         } catch (error) {
             console.error('authService: Error obteniendo usuario actual:', error);
             return null;

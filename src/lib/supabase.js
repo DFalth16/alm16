@@ -5,14 +5,17 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://tu-proyecto.supabase.co';
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'tu-anon-key';
 
-// Crear cliente de Supabase
+// Crear cliente de Supabase con persistencia de sesión mejorada
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true
+        autoRefreshToken: true,      // Renovar token automáticamente
+        persistSession: true,         // Persistir sesión en localStorage
+        detectSessionInUrl: true,     // Detectar sesión en URL (para OAuth)
+        storageKey: 'alm-auth-token', // Clave específica para localStorage
+        storage: window.localStorage  // Usar localStorage explícitamente
     }
 });
 
 // Exportar también para uso directo
 export default supabase;
+

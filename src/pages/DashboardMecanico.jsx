@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout/Layout';
 import {
     Wrench, Clock, CheckCircle, Play,
-    AlertCircle, FileText, Save, Package, Users, Eye, ClipboardList
+    AlertCircle, FileText, Save, Package, Users, Eye, ClipboardList, Stethoscope
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ordenesService } from '../services/ordenesService';
@@ -121,6 +121,7 @@ const DashboardMecanico = () => {
     const esMiOrden = (orden) => orden.tecnico_id === tecnicoData?.tecnico_id;
 
     const misOrdenesPendientes = ordenes.filter(o => esMiOrden(o) && o.estado === 'pendiente');
+    const misOrdenesDiagnosticando = ordenes.filter(o => esMiOrden(o) && o.estado === 'diagnosticando');
     const misOrdenesEnProceso = ordenes.filter(o => esMiOrden(o) && o.estado === 'en-proceso');
     const misOrdenesCompletadas = ordenes.filter(o => esMiOrden(o) && (o.estado === 'completado' || o.estado === 'entregado'));
     const ordenesCompaneros = ordenes.filter(o => !esMiOrden(o));
@@ -133,6 +134,16 @@ const DashboardMecanico = () => {
     const getTecnicoNombre = (tecnicoId) => {
         const tec = tecnicosRama.find(t => t.id === tecnicoId);
         return tec?.nombre || 'Sin asignar';
+    };
+
+    const handleIniciarDiagnostico = async (orden) => {
+        if (!esMiOrden(orden)) return;
+        try {
+            await ordenesService.update(orden.id, { estado: 'diagnosticando' });
+            await loadOrdenesPorRama();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
     };
 
     const handleIniciarTrabajo = async (orden) => {
@@ -248,14 +259,14 @@ ${observacionesAnteriores}`;
                         </p>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{misOrdenesPendientes.length + misOrdenesEnProceso.length}</div>
+                        <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{misOrdenesPendientes.length + misOrdenesDiagnosticando.length + misOrdenesEnProceso.length}</div>
                         <div style={{ opacity: 0.9 }}>Tareas activas</div>
                     </div>
                 </div>
             </div>
 
             {/* Estadísticas */}
-            <div className="grid grid-cols-4" style={{ marginBottom: '24px', gap: '16px' }}>
+            <div className="grid grid-cols-5" style={{ marginBottom: '24px', gap: '16px' }}>
                 <div className="stats-card">
                     <div className="stats-card-icon warning">
                         <Clock size={24} />
@@ -263,6 +274,15 @@ ${observacionesAnteriores}`;
                     <div className="stats-card-content">
                         <div className="stats-card-label">Pendientes</div>
                         <div className="stats-card-value">{misOrdenesPendientes.length}</div>
+                    </div>
+                </div>
+                <div className="stats-card">
+                    <div className="stats-card-icon" style={{ backgroundColor: 'var(--purple-100, #f3e8ff)' }}>
+                        <Stethoscope size={24} style={{ color: 'var(--purple-500, #8b5cf6)' }} />
+                    </div>
+                    <div className="stats-card-content">
+                        <div className="stats-card-label">Diagnosticando</div>
+                        <div className="stats-card-value">{misOrdenesDiagnosticando.length}</div>
                     </div>
                 </div>
                 <div className="stats-card">
@@ -312,7 +332,7 @@ ${observacionesAnteriores}`;
                     }}
                 >
                     <Wrench size={18} />
-                    Mis Tareas ({misOrdenesPendientes.length + misOrdenesEnProceso.length})
+                    Mis Tareas ({misOrdenesPendientes.length + misOrdenesDiagnosticando.length + misOrdenesEnProceso.length})
                 </button>
                 <button
                     onClick={() => setActiveTab('compañeros')}
@@ -394,6 +414,64 @@ ${observacionesAnteriores}`;
                         </div>
                     )}
 
+                    {/* Tareas Diagnosticando */}
+                    {misOrdenesDiagnosticando.length > 0 && (
+                        <div className="card" style={{ marginBottom: '24px' }}>
+                            <div className="card-header" style={{ background: 'var(--purple-50, #faf5ff)' }}>
+                                <h3 className="card-title" style={{ color: 'var(--purple-700, #7c3aed)' }}>
+                                    <Stethoscope size={20} style={{ marginRight: '8px' }} />
+                                    En Diagnóstico - Evaluando vehículo
+                                </h3>
+                            </div>
+                            <div className="card-body" style={{ padding: 0 }}>
+                                {misOrdenesDiagnosticando.map((orden) => (
+                                    <div key={orden.id} style={{
+                                        padding: '20px',
+                                        borderBottom: '1px solid var(--border-color)',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                                                <span style={{ fontWeight: 'bold', fontSize: '18px', color: 'var(--primary-600)' }}>
+                                                    #{orden.numero_orden || orden.id?.substring(0, 8)}
+                                                </span>
+                                                <span style={{ padding: '4px 12px', background: 'var(--purple-100, #f3e8ff)', color: 'var(--purple-700, #7c3aed)', borderRadius: '20px', fontSize: '12px' }}>
+                                                    Diagnosticando
+                                                </span>
+                                            </div>
+                                            <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                                                🚗 {orden.vehiculos?.marca} {orden.vehiculos?.modelo} - {orden.vehiculos?.placa}
+                                            </div>
+                                            <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                                                {orden.descripcion || 'Sin descripción'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                className="btn btn-primary"
+                                                onClick={() => handleAbrirSeguimiento(orden)}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                                            >
+                                                <ClipboardList size={18} />
+                                                Hoja de Seguimiento
+                                            </button>
+                                            <button
+                                                className="btn btn-info"
+                                                onClick={() => handleIniciarTrabajo(orden)}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                                            >
+                                                <Play size={18} />
+                                                Iniciar Reparación
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Tareas Pendientes */}
                     <div className="card">
                         <div className="card-header" style={{ background: 'var(--warning-50)' }}>
@@ -426,14 +504,24 @@ ${observacionesAnteriores}`;
                                             <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '16px' }}>
                                                 {orden.descripcion?.substring(0, 100) || 'Sin descripción'}
                                             </div>
-                                            <button
-                                                className="btn btn-primary"
-                                                onClick={() => handleIniciarTrabajo(orden)}
-                                                style={{ width: '100%' }}
-                                            >
-                                                <Play size={16} style={{ marginRight: '8px' }} />
-                                                Iniciar Trabajo
-                                            </button>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    onClick={() => handleIniciarDiagnostico(orden)}
+                                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                                >
+                                                    <Stethoscope size={16} />
+                                                    Diagnosticar
+                                                </button>
+                                                <button
+                                                    className="btn btn-primary"
+                                                    onClick={() => handleIniciarTrabajo(orden)}
+                                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                                >
+                                                    <Play size={16} />
+                                                    Iniciar
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>

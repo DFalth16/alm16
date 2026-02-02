@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { setCreatingUser } from '../context/AuthContext';
 
 // =====================================================
 // SERVICIO DE PERSONAL
@@ -94,74 +95,108 @@ export const personalService = {
     async create(personalData) {
         const { email, password, nombre, telefono, rol, especialidad, rama_mantenimiento } = personalData;
 
-        // 1. Crear usuario en Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    nombre: nombre,
-                    rol: rol === 'recepcionista' ? 'recepcionista' : 'mecanico'
+        // ACTIVAR flag para ignorar cambios de auth durante la creación
+        setCreatingUser(true);
+
+        try {
+            // IMPORTANTE: Guardar la sesión actual del admin ANTES de crear el nuevo usuario
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+
+            // 1. Crear usuario en Supabase Auth
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        nombre: nombre,
+                        rol: rol === 'recepcionista' ? 'recepcionista' : 'mecanico'
+                    }
                 }
+            });
+
+            if (authError) {
+                console.error('Error en Auth:', authError);
+                // Restaurar sesión del admin si hubo error
+                if (currentSession) {
+                    await supabase.auth.setSession({
+                        access_token: currentSession.access_token,
+                        refresh_token: currentSession.refresh_token
+                    });
+                }
+                throw authError;
             }
-        });
 
-        if (authError) {
-            console.error('Error en Auth:', authError);
-            throw authError;
+            if (!authData.user) {
+                // Restaurar sesión del admin si no se creó el usuario
+                if (currentSession) {
+                    await supabase.auth.setSession({
+                        access_token: currentSession.access_token,
+                        refresh_token: currentSession.refresh_token
+                    });
+                }
+                throw new Error('No se pudo crear el usuario en Auth');
+            }
+
+            // RESTAURAR la sesión del admin inmediatamente después de crear el nuevo usuario
+            // Esto evita que la sesión cambie al nuevo usuario creado
+            if (currentSession) {
+                await supabase.auth.setSession({
+                    access_token: currentSession.access_token,
+                    refresh_token: currentSession.refresh_token
+                });
+            }
+
+            // 2. Crear registro en tabla usuarios
+            const { data: userData, error: userError } = await supabase
+                .from('usuarios')
+                .insert([{
+                    id: authData.user.id,
+                    email,
+                    nombre,
+                    telefono,
+                    rol: rol === 'recepcionista' ? 'recepcionista' : 'mecanico',
+                    activo: true
+                }])
+                .select()
+                .single();
+
+            if (userError) {
+                console.error('Error creando usuario:', userError);
+                throw userError;
+            }
+
+            // 3. Crear registro en tabla tecnicos
+            const { data: tecnicoData, error: tecnicoError } = await supabase
+                .from('tecnicos')
+                .insert([{
+                    nombre,
+                    email,
+                    telefono,
+                    especialidad: rol === 'recepcionista' ? 'Recepción' : (especialidad || 'General'),
+                    rama_mantenimiento: rama_mantenimiento || 'mecanica-general',
+                    disponible: true,
+                    activo: true,
+                    calificacion: 5.0
+                }])
+                .select()
+                .single();
+
+            if (tecnicoError) {
+                console.error('Error creando técnico:', tecnicoError);
+                throw tecnicoError;
+            }
+
+            // 4. Vincular usuario con técnico
+            await supabase
+                .from('usuarios')
+                .update({ tecnico_id: tecnicoData.id })
+                .eq('id', authData.user.id);
+
+            return { ...userData, tecnicos: tecnicoData, rol };
+        } finally {
+            // SIEMPRE desactivar el flag al terminar, sin importar si hubo error o no
+            setCreatingUser(false);
         }
-
-        if (!authData.user) {
-            throw new Error('No se pudo crear el usuario en Auth');
-        }
-
-        // 2. Crear registro en tabla usuarios
-        const { data: userData, error: userError } = await supabase
-            .from('usuarios')
-            .insert([{
-                id: authData.user.id,
-                email,
-                nombre,
-                telefono,
-                rol: rol === 'recepcionista' ? 'recepcionista' : 'mecanico',
-                activo: true
-            }])
-            .select()
-            .single();
-
-        if (userError) {
-            console.error('Error creando usuario:', userError);
-            throw userError;
-        }
-
-        // 3. Crear registro en tabla tecnicos
-        const { data: tecnicoData, error: tecnicoError } = await supabase
-            .from('tecnicos')
-            .insert([{
-                nombre,
-                email,
-                telefono,
-                especialidad: rol === 'recepcionista' ? 'Recepción' : (especialidad || 'General'),
-                rama_mantenimiento: rama_mantenimiento || 'mecanica-general',
-                disponible: true,
-                activo: true,
-                calificacion: 5.0
-            }])
-            .select()
-            .single();
-
-        if (tecnicoError) {
-            console.error('Error creando técnico:', tecnicoError);
-            throw tecnicoError;
-        }
-
-        // 4. Vincular usuario con técnico
-        await supabase
-            .from('usuarios')
-            .update({ tecnico_id: tecnicoData.id })
-            .eq('id', authData.user.id);
-
-        return { ...userData, tecnicos: tecnicoData, rol };
     },
 
     /**

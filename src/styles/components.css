@@ -389,8 +389,14 @@
 }
 
 .form-input.error,
+.form-input-error,
 .form-select.error {
     border-color: var(--danger-500);
+}
+
+.form-input-error:focus {
+    border-color: var(--danger-500);
+    box-shadow: 0 0 0 3px var(--danger-100);
 }
 
 .form-error {

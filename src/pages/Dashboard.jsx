@@ -159,7 +159,7 @@ const Dashboard = () => {
     }
 
     return (
-        <Layout title="Dashboard" subtitle="Panel de Control">
+        <Layout title="Panel" subtitle="Panel de Control">
             {/* Stats Cards */}
             <div className="grid grid-cols-4" style={{ marginBottom: 'var(--spacing-lg)' }}>
                 {stats.map((stat, index) => (

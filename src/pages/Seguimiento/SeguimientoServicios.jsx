@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
     Search, RefreshCw, Clock, Wrench, CheckCircle, Truck,
-    User, Car, X, AlertCircle, Eye
+    User, Car, X, AlertCircle, Eye, Stethoscope
 } from 'lucide-react';
 import { ordenesService } from '../../services/ordenesService';
 import { clientesService } from '../../services/clientesService';
@@ -43,12 +43,8 @@ const SeguimientoServicios = () => {
                 tecnicosService.getAll()
             ]);
 
-            // Only active orders (not delivered)
-            const ordenesActivas = (ordenesRes.data || []).filter(o =>
-                o.estado !== 'entregado'
-            );
-
-            setOrdenes(ordenesActivas);
+            // Cargar todas las órdenes (incluyendo entregadas)
+            setOrdenes(ordenesRes.data || []);
             setClientes(clientesRes.data || []);
             setVehiculos(vehiculosRes.data || []);
             setTecnicos(tecnicosRes.data || []);
@@ -67,6 +63,7 @@ const SeguimientoServicios = () => {
 
     const estados = [
         { value: 'pendiente', label: 'Pendiente', icon: Clock, class: 'pending', color: 'var(--warning-500)' },
+        { value: 'diagnosticando', label: 'Diagnosticando', icon: Stethoscope, class: 'diagnosing', color: 'var(--purple-500, #8b5cf6)' },
         { value: 'en-proceso', label: 'En Proceso', icon: Wrench, class: 'in-progress', color: 'var(--info-500)' },
         { value: 'completado', label: 'Completado', icon: CheckCircle, class: 'completed', color: 'var(--success-500)' },
         { value: 'entregado', label: 'Entregado', icon: Truck, class: 'delivered', color: 'var(--primary-500)' }
@@ -95,8 +92,10 @@ const SeguimientoServicios = () => {
     // Group by status
     const ordenesPorEstado = {
         pendiente: filteredOrdenes.filter(o => o.estado === 'pendiente'),
+        diagnosticando: filteredOrdenes.filter(o => o.estado === 'diagnosticando'),
         'en-proceso': filteredOrdenes.filter(o => o.estado === 'en-proceso'),
-        completado: filteredOrdenes.filter(o => o.estado === 'completado')
+        completado: filteredOrdenes.filter(o => o.estado === 'completado'),
+        entregado: filteredOrdenes.filter(o => o.estado === 'entregado')
     };
 
     const handleViewDetails = (orden) => {
@@ -130,9 +129,10 @@ const SeguimientoServicios = () => {
     // Calculate progress percentage
     const getProgress = (estado) => {
         switch (estado) {
-            case 'pendiente': return 25;
-            case 'en-proceso': return 50;
-            case 'completado': return 75;
+            case 'pendiente': return 20;
+            case 'diagnosticando': return 40;
+            case 'en-proceso': return 60;
+            case 'completado': return 80;
             case 'entregado': return 100;
             default: return 0;
         }
@@ -141,8 +141,10 @@ const SeguimientoServicios = () => {
     // Stats
     const stats = {
         pendientes: ordenes.filter(o => o.estado === 'pendiente').length,
+        diagnosticando: ordenes.filter(o => o.estado === 'diagnosticando').length,
         enProceso: ordenes.filter(o => o.estado === 'en-proceso').length,
-        completadas: ordenes.filter(o => o.estado === 'completado').length
+        completadas: ordenes.filter(o => o.estado === 'completado').length,
+        entregadas: ordenes.filter(o => o.estado === 'entregado').length
     };
 
     if (loading) {
@@ -197,35 +199,112 @@ const SeguimientoServicios = () => {
                 </div>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-3" style={{ marginBottom: 'var(--spacing-lg)' }}>
-                <div className="stats-card" onClick={() => setFilterEstado('pendiente')} style={{ cursor: 'pointer' }}>
-                    <div className="stats-card-icon warning">
-                        <Clock size={24} />
-                    </div>
-                    <div className="stats-card-content">
-                        <div className="stats-card-label">Pendientes</div>
-                        <div className="stats-card-value">{stats.pendientes}</div>
-                    </div>
+            {/* Stats - Compactas */}
+            <div style={{
+                display: 'flex',
+                gap: 'var(--spacing-sm)',
+                marginBottom: 'var(--spacing-md)',
+                flexWrap: 'wrap'
+            }}>
+                <div
+                    onClick={() => setFilterEstado('pendiente')}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        padding: '8px 12px',
+                        backgroundColor: 'var(--warning-50)',
+                        borderRadius: 'var(--border-radius)',
+                        border: filterEstado === 'pendiente' ? '2px solid var(--warning-500)' : '1px solid var(--warning-200)'
+                    }}
+                >
+                    <Clock size={16} style={{ color: 'var(--warning-500)' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
+                        Pendientes: <strong>{stats.pendientes}</strong>
+                    </span>
                 </div>
-                <div className="stats-card" onClick={() => setFilterEstado('en-proceso')} style={{ cursor: 'pointer' }}>
-                    <div className="stats-card-icon info">
-                        <Wrench size={24} />
-                    </div>
-                    <div className="stats-card-content">
-                        <div className="stats-card-label">En Proceso</div>
-                        <div className="stats-card-value">{stats.enProceso}</div>
-                    </div>
+                <div
+                    onClick={() => setFilterEstado('diagnosticando')}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        padding: '8px 12px',
+                        backgroundColor: 'var(--purple-50, #faf5ff)',
+                        borderRadius: 'var(--border-radius)',
+                        border: filterEstado === 'diagnosticando' ? '2px solid var(--purple-500, #8b5cf6)' : '1px solid var(--purple-200, #e9d5ff)'
+                    }}
+                >
+                    <Stethoscope size={16} style={{ color: 'var(--purple-500, #8b5cf6)' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
+                        Diagnosticando: <strong>{stats.diagnosticando}</strong>
+                    </span>
                 </div>
-                <div className="stats-card" onClick={() => setFilterEstado('completado')} style={{ cursor: 'pointer' }}>
-                    <div className="stats-card-icon success">
-                        <CheckCircle size={24} />
-                    </div>
-                    <div className="stats-card-content">
-                        <div className="stats-card-label">Listos para Entregar</div>
-                        <div className="stats-card-value">{stats.completadas}</div>
-                    </div>
+                <div
+                    onClick={() => setFilterEstado('en-proceso')}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        padding: '8px 12px',
+                        backgroundColor: 'var(--info-50)',
+                        borderRadius: 'var(--border-radius)',
+                        border: filterEstado === 'en-proceso' ? '2px solid var(--info-500)' : '1px solid var(--info-200)'
+                    }}
+                >
+                    <Wrench size={16} style={{ color: 'var(--info-500)' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
+                        En Proceso: <strong>{stats.enProceso}</strong>
+                    </span>
                 </div>
+                <div
+                    onClick={() => setFilterEstado('completado')}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        padding: '8px 12px',
+                        backgroundColor: 'var(--success-50)',
+                        borderRadius: 'var(--border-radius)',
+                        border: filterEstado === 'completado' ? '2px solid var(--success-500)' : '1px solid var(--success-200)'
+                    }}
+                >
+                    <CheckCircle size={16} style={{ color: 'var(--success-500)' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
+                        Completados: <strong>{stats.completadas}</strong>
+                    </span>
+                </div>
+                <div
+                    onClick={() => setFilterEstado('entregado')}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        padding: '8px 12px',
+                        backgroundColor: 'var(--primary-50)',
+                        borderRadius: 'var(--border-radius)',
+                        border: filterEstado === 'entregado' ? '2px solid var(--primary-500)' : '1px solid var(--primary-200)'
+                    }}
+                >
+                    <Truck size={16} style={{ color: 'var(--primary-500)' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' }}>
+                        Entregados: <strong>{stats.entregadas}</strong>
+                    </span>
+                </div>
+                {filterEstado && (
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setFilterEstado('')}
+                        style={{ padding: '8px 12px' }}
+                    >
+                        Limpiar filtro
+                    </button>
+                )}
             </div>
 
             {/* Filtros */}
@@ -247,8 +326,10 @@ const SeguimientoServicios = () => {
                 >
                     <option value="">Todos los estados</option>
                     <option value="pendiente">Pendientes</option>
+                    <option value="diagnosticando">Diagnosticando</option>
                     <option value="en-proceso">En Proceso</option>
                     <option value="completado">Completados</option>
+                    <option value="entregado">Entregados</option>
                 </select>
                 {filterEstado && (
                     <button className="btn btn-ghost btn-sm" onClick={() => setFilterEstado('')}>
@@ -257,9 +338,13 @@ const SeguimientoServicios = () => {
                 )}
             </div>
 
-            {/* Kanban-style view */}
-            <div className="grid grid-cols-3" style={{ gap: 'var(--spacing-lg)' }}>
-                {['pendiente', 'en-proceso', 'completado'].map(estadoKey => {
+            {/* Kanban-style view - 5 columnas */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, 1fr)',
+                gap: '8px'
+            }}>
+                {['pendiente', 'diagnosticando', 'en-proceso', 'completado', 'entregado'].map(estadoKey => {
                     const estadoInfo = getEstadoInfo(estadoKey);
                     const ordenesEnEstado = ordenesPorEstado[estadoKey] || [];
 
@@ -267,7 +352,7 @@ const SeguimientoServicios = () => {
                         <div key={estadoKey} style={{
                             backgroundColor: 'var(--gray-50)',
                             borderRadius: 'var(--border-radius-lg)',
-                            padding: 'var(--spacing-md)'
+                            padding: '12px'
                         }}>
                             <div style={{
                                 display: 'flex',

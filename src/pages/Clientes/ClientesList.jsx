@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
     Search, Plus, Edit2, Eye, Mail, Phone, MapPin, Car,
-    User, X, CheckCircle
+    User, X, CheckCircle, Trash2
 } from 'lucide-react';
 import { clientesService } from '../../services/clientesService';
 import { vehiculosService } from '../../services/vehiculosService';
+import { validateEmail, validatePhone, validateName } from '../../utils/validations';
 
 const ClientesList = () => {
     const [clientes, setClientes] = useState([]);
@@ -13,18 +14,21 @@ const ClientesList = () => {
     const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [showNewModal, setShowNewModal] = useState(false);
+    const [showFormModal, setShowFormModal] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editingCliente, setEditingCliente] = useState(null);
     const [selectedCliente, setSelectedCliente] = useState(null);
     const [clienteVehiculos, setClienteVehiculos] = useState([]);
     const [loadingVehiculos, setLoadingVehiculos] = useState(false);
 
-    // Form state for new client
+    // Form state
     const [formData, setFormData] = useState({
         nombre: '',
         email: '',
         telefono: '',
         direccion: ''
     });
+    const [formErrors, setFormErrors] = useState({});
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -78,26 +82,98 @@ const ClientesList = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmitNewClient = async (e) => {
+    // Abrir modal para nuevo cliente
+    const handleOpenNewModal = () => {
+        setIsEditing(false);
+        setEditingCliente(null);
+        setFormData({ nombre: '', email: '', telefono: '', direccion: '' });
+        setFormErrors({});
+        setShowFormModal(true);
+    };
+
+    // Abrir modal para editar cliente
+    const handleEditCliente = (cliente) => {
+        setIsEditing(true);
+        setEditingCliente(cliente);
+        setFormData({
+            nombre: cliente.nombre || '',
+            email: cliente.email || '',
+            telefono: cliente.telefono || '',
+            direccion: cliente.direccion || ''
+        });
+        setFormErrors({});
+        setShowFormModal(true);
+        setShowModal(false); // Cerrar modal de detalles si está abierto
+    };
+
+    // Validar formulario
+    const validateFormData = () => {
+        const errors = {};
+
+        const nameResult = validateName(formData.nombre, 'nombre');
+        if (!nameResult.valid) errors.nombre = nameResult.message;
+
+        const emailResult = validateEmail(formData.email);
+        if (!emailResult.valid) errors.email = emailResult.message;
+
+        const phoneResult = validatePhone(formData.telefono);
+        if (!phoneResult.valid) errors.telefono = phoneResult.message;
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    // Guardar cliente (crear o editar)
+    const handleSubmitForm = async (e) => {
         e.preventDefault();
+
+        if (!validateFormData()) {
+            return;
+        }
+
         setSaving(true);
 
         try {
-            await clientesService.create({
+            const clienteData = {
                 nombre: formData.nombre,
                 email: formData.email || null,
                 telefono: formData.telefono || null,
                 direccion: formData.direccion || null
-            });
+            };
 
-            setShowNewModal(false);
+            if (isEditing && editingCliente) {
+                await clientesService.update(editingCliente.id, clienteData);
+            } else {
+                await clientesService.create(clienteData);
+            }
+
+            setShowFormModal(false);
             setFormData({ nombre: '', email: '', telefono: '', direccion: '' });
+            setIsEditing(false);
+            setEditingCliente(null);
             await loadData();
         } catch (err) {
-            console.error('Error creating client:', err);
-            alert('Error al crear cliente: ' + err.message);
+            console.error('Error saving client:', err);
+            alert('Error al guardar cliente: ' + err.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Eliminar cliente
+    const handleDeleteCliente = async (cliente) => {
+        if (!window.confirm(`¿Estás seguro de eliminar al cliente "${cliente.nombre}"?\n\nEsta acción no se puede deshacer.`)) {
+            return;
+        }
+
+        try {
+            await clientesService.delete(cliente.id);
+            setShowModal(false);
+            setSelectedCliente(null);
+            await loadData();
+        } catch (err) {
+            console.error('Error deleting client:', err);
+            alert('Error al eliminar cliente: ' + err.message);
         }
     };
 
@@ -146,7 +222,7 @@ const ClientesList = () => {
                     <p className="page-subtitle">Gestiona tu cartera de clientes</p>
                 </div>
                 <div className="page-actions">
-                    <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                    <button className="btn btn-primary" onClick={handleOpenNewModal}>
                         <Plus size={18} />
                         Nuevo Cliente
                     </button>
@@ -220,10 +296,25 @@ const ClientesList = () => {
                                 <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
                                     <button
                                         className="btn btn-ghost btn-icon"
+                                        onClick={() => handleEditCliente(cliente)}
+                                        title="Editar"
+                                    >
+                                        <Edit2 size={18} />
+                                    </button>
+                                    <button
+                                        className="btn btn-ghost btn-icon"
                                         onClick={() => handleViewDetails(cliente)}
                                         title="Ver detalles"
                                     >
                                         <Eye size={18} />
+                                    </button>
+                                    <button
+                                        className="btn btn-ghost btn-icon"
+                                        onClick={() => handleDeleteCliente(cliente)}
+                                        title="Eliminar"
+                                        style={{ color: 'var(--danger-500)' }}
+                                    >
+                                        <Trash2 size={18} />
                                     </button>
                                 </div>
                             </div>
@@ -261,7 +352,7 @@ const ClientesList = () => {
                         {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Comienza agregando tu primer cliente'}
                     </p>
                     {!searchTerm && (
-                        <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                        <button className="btn btn-primary" onClick={handleOpenNewModal}>
                             <Plus size={18} />
                             Nuevo Cliente
                         </button>
@@ -362,8 +453,16 @@ const ClientesList = () => {
                             </div>
                         </div>
                         <div className="modal-footer">
+                            <button
+                                className="btn btn-danger"
+                                onClick={() => handleDeleteCliente(selectedCliente)}
+                                style={{ marginRight: 'auto' }}
+                            >
+                                <Trash2 size={16} />
+                                Eliminar
+                            </button>
                             <button className="btn btn-secondary" onClick={handleCloseModal}>Cerrar</button>
-                            <button className="btn btn-primary">
+                            <button className="btn btn-primary" onClick={() => handleEditCliente(selectedCliente)}>
                                 <Edit2 size={16} />
                                 Editar Cliente
                             </button>
@@ -372,51 +471,60 @@ const ClientesList = () => {
                 </div>
             )}
 
-            {/* Modal Nuevo Cliente */}
-            {showNewModal && (
-                <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
+            {/* Modal Nuevo/Editar Cliente */}
+            {showFormModal && (
+                <div className="modal-overlay" onClick={() => setShowFormModal(false)}>
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2 className="modal-title">Nuevo Cliente</h2>
-                            <button className="modal-close" onClick={() => setShowNewModal(false)}>×</button>
+                            <h2 className="modal-title">{isEditing ? 'Editar Cliente' : 'Nuevo Cliente'}</h2>
+                            <button className="modal-close" onClick={() => setShowFormModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleSubmitNewClient}>
+                        <form onSubmit={handleSubmitForm}>
                             <div className="modal-body">
                                 <div className="form-group">
                                     <label className="form-label required">Nombre Completo</label>
                                     <input
                                         type="text"
-                                        className="form-input"
+                                        className={`form-input ${formErrors.nombre ? 'form-input-error' : ''}`}
                                         name="nombre"
                                         value={formData.nombre}
                                         onChange={handleInputChange}
                                         placeholder="Ej: Juan Pérez"
                                         required
                                     />
+                                    {formErrors.nombre && (
+                                        <span className="form-error">{formErrors.nombre}</span>
+                                    )}
                                 </div>
 
                                 <div className="form-group">
                                     <label className="form-label">Correo Electrónico</label>
                                     <input
                                         type="email"
-                                        className="form-input"
+                                        className={`form-input ${formErrors.email ? 'form-input-error' : ''}`}
                                         name="email"
                                         value={formData.email}
                                         onChange={handleInputChange}
                                         placeholder="ejemplo@correo.com"
                                     />
+                                    {formErrors.email && (
+                                        <span className="form-error">{formErrors.email}</span>
+                                    )}
                                 </div>
 
                                 <div className="form-group">
                                     <label className="form-label">Teléfono</label>
                                     <input
                                         type="tel"
-                                        className="form-input"
+                                        className={`form-input ${formErrors.telefono ? 'form-input-error' : ''}`}
                                         name="telefono"
                                         value={formData.telefono}
                                         onChange={handleInputChange}
                                         placeholder="Ej: +591 70000000"
                                     />
+                                    {formErrors.telefono && (
+                                        <span className="form-error">{formErrors.telefono}</span>
+                                    )}
                                 </div>
 
                                 <div className="form-group">
@@ -432,11 +540,11 @@ const ClientesList = () => {
                                 </div>
                             </div>
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowFormModal(false)}>
                                     Cancelar
                                 </button>
                                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? 'Guardando...' : 'Guardar Cliente'}
+                                    {saving ? 'Guardando...' : (isEditing ? 'Actualizar' : 'Guardar Cliente')}
                                 </button>
                             </div>
                         </form>

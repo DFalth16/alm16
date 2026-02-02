@@ -30,8 +30,8 @@ const Sidebar = () => {
 
     // Definir permisos por rol
     const rolePermissions = {
-        'administrador': ['dashboard', 'clientes', 'vehiculos', 'ordenes', 'seguimiento', 'historial', 'garantias', 'citas', 'tecnicos', 'reportes'],
-        'admin': ['dashboard', 'clientes', 'vehiculos', 'ordenes', 'seguimiento', 'historial', 'garantias', 'citas', 'tecnicos', 'reportes'],
+        'administrador': ['Panel', 'clientes', 'vehiculos', 'ordenes', 'seguimiento', 'historial', 'garantias', 'citas', 'tecnicos', 'reportes'],
+        'admin': ['Panel', 'clientes', 'vehiculos', 'ordenes', 'seguimiento', 'historial', 'garantias', 'citas', 'tecnicos', 'reportes'],
         'recepcionista': ['clientes', 'vehiculos', 'ordenes', 'seguimiento', 'historial', 'garantias', 'citas'],
         'mecanico': ['ordenes', 'seguimiento', 'historial'],
         'operador': ['ordenes', 'seguimiento', 'historial']
@@ -64,7 +64,7 @@ const Sidebar = () => {
         {
             section: 'Principal',
             items: [
-                { path: getDashboardPath(), icon: LayoutDashboard, label: 'Dashboard', badge: null, permission: 'dashboard' },
+                { path: getDashboardPath(), icon: LayoutDashboard, label: 'Panel', badge: null, permission: 'Panel' },
             ]
         },
         {

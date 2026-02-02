@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout/Layout';
 import {
-    Search, Plus, Car, User, Eye, X, Filter
+    Search, Plus, Car, User, Eye, X, Filter, Edit2, Trash2
 } from 'lucide-react';
 import { vehiculosService } from '../../services/vehiculosService';
 import { clientesService } from '../../services/clientesService';
+import { validatePlaca, validateYear, validateKilometraje, validateRequired } from '../../utils/validations';
 
 const VehiculosList = () => {
     const [vehiculos, setVehiculos] = useState([]);
@@ -14,7 +15,9 @@ const VehiculosList = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterMarca, setFilterMarca] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [showNewModal, setShowNewModal] = useState(false);
+    const [showFormModal, setShowFormModal] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editingVehiculo, setEditingVehiculo] = useState(null);
     const [selectedVehiculo, setSelectedVehiculo] = useState(null);
 
     // Form state
@@ -28,6 +31,7 @@ const VehiculosList = () => {
         vin: '',
         kilometraje: 0
     });
+    const [formErrors, setFormErrors] = useState({});
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -86,18 +90,87 @@ const VehiculosList = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmitNewVehicle = async (e) => {
+    const resetFormData = () => {
+        setFormData({
+            cliente_id: '',
+            marca: '',
+            modelo: '',
+            anio: new Date().getFullYear(),
+            placa: '',
+            color: '',
+            vin: '',
+            kilometraje: 0
+        });
+    };
+
+    // Abrir modal para nuevo vehículo
+    const handleOpenNewModal = () => {
+        setIsEditing(false);
+        setEditingVehiculo(null);
+        resetFormData();
+        setFormErrors({});
+        setShowFormModal(true);
+    };
+
+    // Abrir modal para editar vehículo
+    const handleEditVehiculo = (vehiculo) => {
+        setIsEditing(true);
+        setEditingVehiculo(vehiculo);
+        setFormData({
+            cliente_id: vehiculo.cliente_id || '',
+            marca: vehiculo.marca || '',
+            modelo: vehiculo.modelo || '',
+            anio: vehiculo.anio || new Date().getFullYear(),
+            placa: vehiculo.placa || '',
+            color: vehiculo.color || '',
+            vin: vehiculo.vin || '',
+            kilometraje: vehiculo.kilometraje || 0
+        });
+        setFormErrors({});
+        setShowFormModal(true);
+        setShowModal(false);
+    };
+
+    // Validar formulario
+    const validateFormData = () => {
+        const errors = {};
+
+        const clienteResult = validateRequired(formData.cliente_id, 'Propietario');
+        if (!clienteResult.valid) errors.cliente_id = clienteResult.message;
+
+        const marcaResult = validateRequired(formData.marca, 'Marca');
+        if (!marcaResult.valid) errors.marca = marcaResult.message;
+
+        const modeloResult = validateRequired(formData.modelo, 'Modelo');
+        if (!modeloResult.valid) errors.modelo = modeloResult.message;
+
+        const placaResult = validatePlaca(formData.placa);
+        if (!placaResult.valid) errors.placa = placaResult.message;
+
+        const yearResult = validateYear(formData.anio);
+        if (!yearResult.valid) errors.anio = yearResult.message;
+
+        if (formData.kilometraje) {
+            const kmResult = validateKilometraje(formData.kilometraje);
+            if (!kmResult.valid) errors.kilometraje = kmResult.message;
+        }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    // Guardar vehículo (crear o editar)
+    const handleSubmitForm = async (e) => {
         e.preventDefault();
 
-        if (!formData.cliente_id) {
-            alert('Por favor selecciona un cliente');
+        if (!validateFormData()) {
             return;
         }
 
         setSaving(true);
 
         try {
-            await vehiculosService.create({
+            const vehiculoData = {
                 cliente_id: formData.cliente_id,
                 marca: formData.marca,
                 modelo: formData.modelo,
@@ -106,25 +179,41 @@ const VehiculosList = () => {
                 color: formData.color || null,
                 vin: formData.vin || null,
                 kilometraje: parseInt(formData.kilometraje) || 0
-            });
+            };
 
-            setShowNewModal(false);
-            setFormData({
-                cliente_id: '',
-                marca: '',
-                modelo: '',
-                anio: new Date().getFullYear(),
-                placa: '',
-                color: '',
-                vin: '',
-                kilometraje: 0
-            });
+            if (isEditing && editingVehiculo) {
+                await vehiculosService.update(editingVehiculo.id, vehiculoData);
+            } else {
+                await vehiculosService.create(vehiculoData);
+            }
+
+            setShowFormModal(false);
+            resetFormData();
+            setIsEditing(false);
+            setEditingVehiculo(null);
             await loadData();
         } catch (err) {
-            console.error('Error creating vehicle:', err);
-            alert('Error al crear vehículo: ' + err.message);
+            console.error('Error saving vehicle:', err);
+            alert('Error al guardar vehículo: ' + err.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Eliminar vehículo
+    const handleDeleteVehiculo = async (vehiculo) => {
+        if (!window.confirm(`¿Estás seguro de eliminar el vehículo "${vehiculo.marca} ${vehiculo.modelo}" (${vehiculo.placa})?\n\nEsta acción no se puede deshacer.`)) {
+            return;
+        }
+
+        try {
+            await vehiculosService.delete(vehiculo.id);
+            setShowModal(false);
+            setSelectedVehiculo(null);
+            await loadData();
+        } catch (err) {
+            console.error('Error deleting vehicle:', err);
+            alert('Error al eliminar vehículo: ' + err.message);
         }
     };
 
@@ -173,7 +262,7 @@ const VehiculosList = () => {
                     <p className="page-subtitle">Gestiona los vehículos de tus clientes</p>
                 </div>
                 <div className="page-actions">
-                    <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                    <button className="btn btn-primary" onClick={handleOpenNewModal}>
                         <Plus size={18} />
                         Nuevo Vehículo
                     </button>
@@ -272,12 +361,30 @@ const VehiculosList = () => {
                                             </span>
                                         </div>
                                     </div>
-                                    <button
-                                        className="btn btn-ghost btn-icon"
-                                        onClick={() => handleViewDetails(vehiculo)}
-                                    >
-                                        <Eye size={18} />
-                                    </button>
+                                    <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleEditVehiculo(vehiculo)}
+                                            title="Editar"
+                                        >
+                                            <Edit2 size={18} />
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleViewDetails(vehiculo)}
+                                            title="Ver detalles"
+                                        >
+                                            <Eye size={18} />
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={() => handleDeleteVehiculo(vehiculo)}
+                                            title="Eliminar"
+                                            style={{ color: 'var(--danger-500)' }}
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
@@ -325,7 +432,7 @@ const VehiculosList = () => {
                         {searchTerm || filterMarca ? 'Intenta con otros filtros' : 'Comienza agregando tu primer vehículo'}
                     </p>
                     {!searchTerm && !filterMarca && (
-                        <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
+                        <button className="btn btn-primary" onClick={handleOpenNewModal}>
                             <Plus size={18} />
                             Nuevo Vehículo
                         </button>
@@ -434,21 +541,33 @@ const VehiculosList = () => {
                             })()}
                         </div>
                         <div className="modal-footer">
+                            <button
+                                className="btn btn-danger"
+                                onClick={() => handleDeleteVehiculo(selectedVehiculo)}
+                                style={{ marginRight: 'auto' }}
+                            >
+                                <Trash2 size={16} />
+                                Eliminar
+                            </button>
                             <button className="btn btn-secondary" onClick={handleCloseModal}>Cerrar</button>
+                            <button className="btn btn-primary" onClick={() => handleEditVehiculo(selectedVehiculo)}>
+                                <Edit2 size={16} />
+                                Editar Vehículo
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Modal Nuevo Vehículo */}
-            {showNewModal && (
-                <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
+            {/* Modal Nuevo/Editar Vehículo */}
+            {showFormModal && (
+                <div className="modal-overlay" onClick={() => setShowFormModal(false)}>
                     <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2 className="modal-title">Nuevo Vehículo</h2>
-                            <button className="modal-close" onClick={() => setShowNewModal(false)}>×</button>
+                            <h2 className="modal-title">{isEditing ? 'Editar Vehículo' : 'Nuevo Vehículo'}</h2>
+                            <button className="modal-close" onClick={() => setShowFormModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleSubmitNewVehicle}>
+                        <form onSubmit={handleSubmitForm}>
                             <div className="modal-body">
                                 <div className="form-group">
                                     <label className="form-label required">Propietario</label>
@@ -568,11 +687,11 @@ const VehiculosList = () => {
                                 */}
                             </div>
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowFormModal(false)}>
                                     Cancelar
                                 </button>
                                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? 'Guardando...' : 'Guardar Vehículo'}
+                                    {saving ? 'Guardando...' : (isEditing ? 'Actualizar' : 'Guardar Vehículo')}
                                 </button>
                             </div>
                         </form>
